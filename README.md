@@ -44,15 +44,17 @@ At 12 threads:
 
 - **Tuned Tokio** is clearly fastest on 7 of the 11 cases, ties on `cpu` and `mutex`, and is behind Go on `spawn`
   and `select-cap1`. The big gains are on channels: 10× default Tokio on `spsc` and 7× on `mpmc`.
-- **Default Tokio** is the slowest on every channel test from 2 threads up, and its async `tokio::sync::Mutex` is
-  about 3× slower than Go's `sync.Mutex` and about 9× slower than `parking_lot`.
+- **Default Tokio** is the slowest on `spsc`, `mpmc` and their capacity-1 versions from 2 threads up, though its
+  `select!` beats both Go and Crossbeam. Its async `tokio::sync::Mutex` is about 3× slower than Go's `sync.Mutex`
+  and about 9× slower than `parking_lot`.
 - **Capacity 1** costs everyone. Among the untuned implementations Go copes best: it leads on every capacity-1
-  case from 2 threads up and is fastest overall on `select-cap1`, where tuned Tokio's batching can't help.
+  case at 6 and 12 threads (at 2 threads Crossbeam edges it on `mpmc-cap1`, 7.19M vs 6.93M, both noisy) and is
+  fastest overall on `select-cap1`, where tuned Tokio's batching can't help.
 - **Crossbeam on 1 CPU** drops to 109K–154K messages/s on capacity-1 channels and ping-pong, because each message
   needs an OS thread switch. With 2 or more CPUs it has the best ping-pong tail: p99 about 300 ns, against about
   430 ns for Go and about 2.2 µs for both Tokio versions. Tuned Tokio has the best median, 90 ns.
-- **Spawning:** Go leads at 6 and 12 threads; tuned Tokio leads on 1 and 2 threads (6.64M and 6.19M tasks/s,
-  against Go's 1.43M and 5.30M). Crossbeam's OS threads manage about 29K/s at 10k tasks.
+- **Spawning 1M tasks:** Go leads at 6 and 12 threads; tuned Tokio leads on 1 and 2 threads (6.64M and 6.19M
+  tasks/s, against Go's 1.43M and 5.30M), and at every thread count with 10k tasks. Crossbeam's OS threads manage about 29K/s at 10k tasks.
 - **CPU-heavy work** is within 10% everywhere (Go about 7% behind); tuning doesn't matter because the hot loop
   never allocates.
 - **Memory per idle task** at 10k tasks: tuned Tokio 225 B, default Tokio 393 B, Go 2.75 KiB, Crossbeam OS threads
