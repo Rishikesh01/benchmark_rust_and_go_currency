@@ -1,0 +1,9 @@
+[package]
+name = "tokio-bench"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+common = { path = "../common" }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
+async-channel = "2"
