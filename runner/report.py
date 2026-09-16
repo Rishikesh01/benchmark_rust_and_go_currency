@@ -14,14 +14,19 @@ from pathlib import Path
 
 CV_WARN_PCT = 5.0
 
-WORKLOAD_ORDER = ["spsc", "mpmc", "pingpong", "spawn", "cpu", "select", "mutex", "idle"]
+WORKLOAD_ORDER = ["spsc", "spsc-cap1", "mpmc", "mpmc-cap1", "pingpong", "spawn", "cpu", "select", "select-cap1", "mutex", "idle"]
 WORKLOAD_INFO = {
-    "spsc": ("One sender, one receiver", "Raw message rate through a bounded channel.", "messages/s"),
-    "mpmc": ("Many senders, many receivers", "{producers} senders and {consumers} receivers sharing one bounded channel.", "messages/s"),
+    "spsc": ("One sender, one receiver", "Raw message rate through a bounded channel of capacity {capacity}.", "messages/s"),
+    "spsc-cap1": ("One sender, one receiver, capacity 1",
+                  "The same test with a channel of capacity {capacity}, so nearly every message is a hand-off between tasks.", "messages/s"),
+    "mpmc": ("Many senders, many receivers", "{producers} senders and {consumers} receivers sharing one bounded channel of capacity {capacity}.", "messages/s"),
+    "mpmc-cap1": ("Many senders, many receivers, capacity 1",
+                  "{producers} senders and {consumers} receivers sharing one channel of capacity {capacity}.", "messages/s"),
     "pingpong": ("Ping-pong", "Two tasks pass one token back and forth over capacity-1 channels; measures wake-up cost.", "round trips/s"),
     "spawn": ("Spawn and join", "Start tasks that each return a number, then wait for all of them.", "tasks/s"),
     "cpu": ("CPU-heavy parallel work", "Hash items with splitmix64 ({rounds} rounds each), split into {tasks} chunks.", "items/s"),
-    "select": ("Select", "One consumer waits on two channels at once until both close.", "messages/s"),
+    "select": ("Select", "One consumer waits on two channels of capacity {capacity} at once until both close.", "messages/s"),
+    "select-cap1": ("Select, capacity 1", "The same select test with both channels at capacity {capacity}.", "messages/s"),
     "mutex": ("Lock contention", "{workers} workers increment one shared counter under a mutex.", "increments/s"),
     "idle": ("Memory per idle task", "Resident memory added per task parked on a channel or semaphore.", "bytes/task"),
 }

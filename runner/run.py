@@ -54,17 +54,30 @@ TOKIO_VARIANTS = {
 
 U64 = 1 << 64
 
-# Parameters passed identically to every implementation.
+# Test cases and the parameters passed identically to every implementation. Channel capacity is the
+# same for all implementations in a case; the -cap1 cases repeat a channel test with capacity 1.
 WORKLOAD_PARAMS = {
     "spsc": {"capacity": 1024},
+    "spsc-cap1": {"capacity": 1},
     "mpmc": {"capacity": 1024, "producers": 4, "consumers": 4},
+    "mpmc-cap1": {"capacity": 1, "producers": 4, "consumers": 4},
     "pingpong": {"sample-every": 16},
     "spawn": {},
     "cpu": {"tasks": 256, "rounds": 32},
     "select": {"capacity": 1024},
+    "select-cap1": {"capacity": 1},
     "mutex": {"workers": 8},
     "idle": {"settle-ms": 200},
 }
+
+# Cases that run another workload's code with different parameters.
+CASE_WORKLOAD = {"spsc-cap1": "spsc", "mpmc-cap1": "mpmc", "select-cap1": "select"}
+
+
+def program_workload(case: str) -> str:
+    """The --workload a binary runs for a test case."""
+    return CASE_WORKLOAD.get(case, case)
+
 
 PROFILES = {
     # Seconds-per-run sizes to prove everything works end to end.
@@ -74,11 +87,14 @@ PROFILES = {
         "threads": [1, 2, 6, 12],
         "sizes": {
             "spsc": [200_000],
+            "spsc-cap1": [20_000],
             "mpmc": [200_000],
+            "mpmc-cap1": [20_000],
             "pingpong": [20_000],
             "spawn": [10_000, 100_000],
             "cpu": [500_000],
             "select": [200_000],
+            "select-cap1": [20_000],
             "mutex": [200_000],
             "idle": [10_000, 100_000],
         },
@@ -90,11 +106,15 @@ PROFILES = {
         "threads": [1, 2, 6, 12],
         "sizes": {
             "spsc": [10_000_000],
+            # Capacity 1 can need a thread switch per message (Crossbeam: ~130K msgs/s on 1 CPU).
+            "spsc-cap1": [1_000_000],
             "mpmc": [10_000_000],
+            "mpmc-cap1": [1_000_000],
             "pingpong": [1_000_000],
             "spawn": [10_000, 1_000_000],
             "cpu": [16_000_000],
             "select": [10_000_000],
+            "select-cap1": [1_000_000],
             "mutex": [10_000_000],
             "idle": [10_000, 100_000, 1_000_000],
         },
@@ -216,14 +236,14 @@ def pick_impls(requested: str | None) -> list[str]:
     return impls
 
 
-def resolve_impl(impl: str, workload: str) -> tuple[Path, list[str]] | None:
-    """Binary and --variant list for an impl spec, or None if it doesn't apply to this workload."""
+def resolve_impl(impl: str, case: str) -> tuple[Path, list[str]] | None:
+    """Binary and --variant list for an impl spec, or None if it doesn't apply to this case."""
     base, *variants = impl.split("+")
     if not variants:
         return BINARIES[base], []
     for v in variants:
         workloads = TOKIO_VARIANTS[v][0]
-        if workloads is not None and workload not in workloads:
+        if workloads is not None and program_workload(case) not in workloads:
             return None
     binary = TOKIO_VARIANTS_MIMALLOC_BINARY if "mimalloc" in variants else TOKIO_VARIANTS_BINARY
     return binary, [v for v in variants if v != "mimalloc"]
@@ -288,6 +308,7 @@ def base_record(impl, workload, size, threads, cpus) -> dict:
     return {
         "impl": impl,
         "workload": workload,
+        "program_workload": program_workload(workload),
         "size": size,
         "threads": threads,
         "cpus": cpus,
@@ -297,7 +318,7 @@ def base_record(impl, workload, size, threads, cpus) -> dict:
 
 def run_one(impl, workload, size, threads, cpus, timeout) -> dict:
     binary, variants = resolve_impl(impl, workload)
-    cmd = [str(binary), "--workload", workload, "--threads", str(threads), "--size", str(size)]
+    cmd = [str(binary), "--workload", program_workload(workload), "--threads", str(threads), "--size", str(size)]
     for key, value in WORKLOAD_PARAMS[workload].items():
         cmd += [f"--{key}", str(value)]
     if variants:
@@ -348,7 +369,7 @@ def verify(rec: dict, consensus: dict) -> None:
     if rec["status"] != "ok":
         rec["valid"] = None
         return
-    expected = expected_checksum(rec["workload"], rec["size"], rec["params"])
+    expected = expected_checksum(program_workload(rec["workload"]), rec["size"], rec["params"])
     source = "formula"
     if expected is None:
         key = (rec["workload"], rec["size"], tuple(sorted(rec["params"].items())))

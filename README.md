@@ -1,7 +1,8 @@
 # Tokio vs Crossbeam vs Go: concurrency benchmark
 
 Eight workloads, each written the normal way in Tokio, Crossbeam and Go, doing the same work and producing
-the same checksum. A separately written tuned Tokio version shows how far Tokio gets with common tweaks. One Python runner builds, pins, runs, verifies and
+the same checksum. The three channel tests also run with a capacity-1 channel. A separately written tuned
+Tokio version shows how far Tokio gets with common tweaks. One Python runner builds, pins, runs, verifies and
 reports on all of them the same way.
 
 ```
@@ -39,7 +40,7 @@ Each binary also runs on its own and prints one JSON line:
 
 ```sh
 rust/target/release/tokio-bench       --workload spsc --threads 4 --size 1000000
-rust/target/release/tokio-tuned-bench --workload spsc --threads 4 --size 1000000
+rust/target/release/tokio-tuned-bench --workload spsc --threads 4 --size 1000000 --capacity 1
 go/bin/gobench                        --workload spsc --threads 4 --size 1000000
 ```
 
@@ -53,18 +54,31 @@ go/bin/gobench                        --workload spsc --threads 4 --size 1000000
 
 | Workload | Measures | Tokio | Crossbeam | Go |
 |---|---|---|---|---|
-| `spsc` | channel throughput, 1 sender → 1 receiver, capacity 1024 | `sync::mpsc` | `channel::bounded` | `chan` |
+| `spsc` | channel throughput, 1 sender → 1 receiver | `sync::mpsc` | `channel::bounded` | `chan` |
 | `mpmc` | 4 senders → 4 receivers on one channel | `async-channel` ¹ | `channel::bounded` | `chan` |
-| `pingpong` | wake-up cost: one token bounced between two tasks, p50/p99/p99.9 round trip | `mpsc(1)` | `bounded(1)` | `chan` cap 1 ² |
-| `spawn` | start N tasks that return a value, join all | `tokio::spawn` | scoped OS threads ³ | goroutines + `WaitGroup` |
+| `pingpong` | wake-up cost: one token bounced between two tasks, p50/p99/p99.9 round trip | `mpsc(1)` | `bounded(1)` | `chan` cap 1 |
+| `spawn` | start N tasks that return a value, join all | `tokio::spawn` | scoped OS threads ² | goroutines + `WaitGroup` |
 | `cpu` | parallel splitmix64 hashing, 256 chunks | tasks on runtime | `deque` work-stealing pool | goroutines |
 | `select` | one consumer selecting over two channels until both close | `tokio::select!` | `select!` + `never()` | `select` + nil channel |
 | `mutex` | 8 workers incrementing one counter | `sync::Mutex` | `parking_lot::Mutex` | `sync.Mutex` |
-| `idle` | resident memory per parked task (10k / 100k / 1M) | `Semaphore` wait | blocked OS thread ³ | blocked goroutine |
+| `idle` | resident memory per parked task (10k / 100k / 1M) | `Semaphore` wait | blocked OS thread ² | blocked goroutine |
 
 1. Tokio's own mpsc has a single receiver.
-2. Capacity 1 everywhere, because Tokio channels can't be zero-capacity.
-3. Crossbeam has no lightweight tasks. Above 20,000 threads the binary reports `skipped`.
+2. Crossbeam has no lightweight tasks. Above 20,000 threads the binary reports `skipped`.
+
+### Channel capacity
+
+Every implementation, including `tokio-tuned`, uses the same capacity in each test case:
+
+| Test case | Capacity |
+|---|---|
+| `spsc`, `mpmc`, `select` (each of the two channels) | 1024 |
+| `spsc-cap1`, `mpmc-cap1`, `select-cap1` | 1 |
+| `pingpong` (both directions) | 1 |
+
+Capacity 1 rather than 0 because Tokio channels can't be zero-capacity. At capacity 1 nearly every message is
+a hand-off between tasks, so these cases measure wake-up cost rather than batching. They use 1M messages
+instead of 10M because Crossbeam on 1 CPU manages only about 130K messages/s there.
 
 ## Tuned Tokio
 
@@ -144,7 +158,7 @@ the binary `tokio-bench(-mimalloc)`; the code is the same.
 |---|---|
 | `meta.json` | machine, toolchains, crate versions, governor, warnings, seed |
 | `raw.jsonl` | every run, including warm-ups, skips and failures |
-| `summary.csv` | one row per workload × size × threads × implementation |
+| `summary.csv` | one row per test case × size × threads × implementation |
 | `summary.md` | tables, best value in bold |
 | `report.html` | self-contained charts (hover for details, table view under each chart); download and open it locally, GitHub shows HTML as source |
 
@@ -153,5 +167,5 @@ the binary `tokio-bench(-mimalloc)`; the code is the same.
 1. Implement it in `tokio-bench`, `tokio-tuned-bench`, `crossbeam-bench` and `go/main.go`, printing
    `Report`/`okReport`.
 2. Add its parameters to `WORKLOAD_PARAMS`, its sizes to both `PROFILES`, and its checksum to `expected_checksum`
-   in `runner/run.py`.
+   in `runner/run.py`. A new parameter set for an existing workload also needs an entry in `CASE_WORKLOAD`.
 3. Add a title, description and unit to `WORKLOAD_INFO` in `runner/report.py`.
