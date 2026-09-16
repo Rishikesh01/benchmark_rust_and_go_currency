@@ -19,6 +19,45 @@ runner/
 results/<profile>-<timestamp>/
 ```
 
+## Results
+
+From [`results/full-20260916-231803`](results/full-20260916-231803/summary.md): AMD Ryzen 5 5625U laptop
+(6 cores / 12 threads), 3 warm-ups + 10 measured runs, medians. The CPU governor was `powersave` and the load
+average was 3.3 at the start, so some cells are noisy (marked ⚠ in `summary.md`). Tables for 1, 2 and 6 threads,
+spread and latency percentiles are in `summary.md`; charts are in `report.html`.
+
+At 12 threads:
+
+| Test case | Tokio | Tuned Tokio | Crossbeam | Go | Unit |
+|---|---:|---:|---:|---:|---|
+| `spsc` | 12.8M | **129M** | 36.4M | 28.5M | messages/s |
+| `spsc-cap1` | 4.52M | **18.2M** | 6.64M | 9.92M | messages/s |
+| `mpmc` | 9.46M | **67.7M** | 24.1M | 15.3M | messages/s |
+| `mpmc-cap1` | 1.95M | **18.1M** | 4.83M | 6.20M | messages/s |
+| `pingpong` | 4.37M | **7.53M** | 3.94M | 4.00M | round trips/s |
+| `spawn`, 1M tasks | 2.59M | 5.21M | skipped | **5.55M** | tasks/s |
+| `cpu` | 115M | 117M | 115M | 107M | items/s |
+| `select` | 20.3M | **40.7M** | 13.2M | 13.8M | messages/s |
+| `select-cap1` | 5.78M | 5.15M | 3.32M | **7.17M** | messages/s |
+| `mutex` | 9.47M | 82.6M | 81.6M | 27.0M | increments/s |
+| `idle`, 1M tasks | 384 B | **256 B** | skipped | 2.69 KiB | memory per task |
+
+- **Tuned Tokio** is clearly fastest on 7 of the 11 cases, ties on `cpu` and `mutex`, and is behind Go on `spawn`
+  and `select-cap1`. The big gains are on channels: 10× default Tokio on `spsc` and 7× on `mpmc`.
+- **Default Tokio** is the slowest on every channel test from 2 threads up, and its async `tokio::sync::Mutex` is
+  about 3× slower than Go's `sync.Mutex` and about 9× slower than `parking_lot`.
+- **Capacity 1** costs everyone. Among the untuned implementations Go copes best: it leads on every capacity-1
+  case from 2 threads up and is fastest overall on `select-cap1`, where tuned Tokio's batching can't help.
+- **Crossbeam on 1 CPU** drops to 109K–154K messages/s on capacity-1 channels and ping-pong, because each message
+  needs an OS thread switch. With 2 or more CPUs it has the best ping-pong tail: p99 about 300 ns, against about
+  430 ns for Go and about 2.2 µs for both Tokio versions. Tuned Tokio has the best median, 90 ns.
+- **Spawning:** Go leads at 6 and 12 threads; tuned Tokio leads on 1 and 2 threads (6.64M and 6.19M tasks/s,
+  against Go's 1.43M and 5.30M). Crossbeam's OS threads manage about 29K/s at 10k tasks.
+- **CPU-heavy work** is within 10% everywhere (Go about 7% behind); tuning doesn't matter because the hot loop
+  never allocates.
+- **Memory per idle task** at 10k tasks: tuned Tokio 225 B, default Tokio 393 B, Go 2.75 KiB, Crossbeam OS threads
+  9.84 KiB (excluding kernel memory).
+
 ## Running
 
 Requires Rust (stable), Go 1.22+, Python 3.10+, `lscpu` and `taskset` (util-linux). Linux only
@@ -27,7 +66,7 @@ Requires Rust (stable), Go 1.22+, Python 3.10+, `lscpu` and `taskset` (util-linu
 ```sh
 python3 runner/run.py                        # smoke profile: tiny sizes, about 1 minute
 python3 runner/run.py --profile full         # real numbers: 3 warm-ups + 10 runs
-python3 runner/run.py --profile full --impls tokio,crossbeam,go,tokio-tuned
+python3 runner/run.py --profile full --impls tokio,crossbeam,go,tokio-tuned   # about 20 minutes
 python3 runner/run.py --profile full --workloads cpu,mutex --threads 1,6
 python3 runner/report.py results/full-...    # rebuild reports from an existing raw.jsonl
 ```

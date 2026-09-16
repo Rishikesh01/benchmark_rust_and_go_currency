@@ -1,0 +1,630 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Concurrency Benchmark Report</title>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #898781;
+  --gridline: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.10);
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #4a3aa7;
+  --series-8: #e34948;
+  --warning: #fab219;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --muted: #898781;
+    --gridline: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255, 255, 255, 0.10);
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --series-6: #008300;
+    --series-7: #9085e9;
+    --series-8: #e66767;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d;
+  --surface: #1a1a19;
+  --ink: #ffffff;
+  --ink-2: #c3c2b7;
+  --muted: #898781;
+  --gridline: #2c2c2a;
+  --axis: #383835;
+  --border: rgba(255, 255, 255, 0.10);
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
+  --series-8: #e66767;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+main { max-width: 1120px; margin: 0 auto; padding: 40px 16px 64px; }
+h1 { font-size: 28px; line-height: 1.2; margin: 0 0 4px; font-weight: 600; }
+h2 { font-size: 20px; line-height: 1.3; margin: 48px 0 4px; font-weight: 600; }
+h2 code { font-size: 13px; font-weight: 400; color: var(--muted); margin-left: 8px; }
+.sub { color: var(--ink-2); margin: 0 0 16px; max-width: 80ch; }
+.section-blurb { color: var(--ink-2); margin: 0 0 16px; max-width: 80ch; }
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  min-width: 0;
+}
+.card h3 { font-size: 14px; margin: 0; font-weight: 600; }
+.card-sub { color: var(--muted); margin: 2px 0 0; font-size: 12px; }
+.card-note { color: var(--ink-2); margin: 4px 0 0; font-size: 12px; }
+.grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--ink-2); margin: 8px 0; }
+.legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.key-line { display: inline-block; width: 14px; height: 2px; border-radius: 1px; }
+.key-rect { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.chart { width: 100%; }
+.chart svg { display: block; overflow: visible; }
+.chart svg:focus-visible { outline: 2px solid var(--series-1); outline-offset: 4px; border-radius: 4px; }
+svg .gl { stroke: var(--gridline); stroke-width: 1; }
+svg .ax { stroke: var(--axis); stroke-width: 1; }
+svg .tick { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+svg .axis-title { fill: var(--muted); font-size: 11px; }
+svg .line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+svg .dot { stroke: var(--surface); stroke-width: 2; }
+svg .whisker { stroke-width: 1.5; stroke-linecap: round; opacity: 0.4; }
+svg .end-label, svg .row-label { fill: var(--ink-2); font-size: 12px; }
+svg .value-label { fill: var(--ink); font-size: 12px; font-variant-numeric: tabular-nums; }
+svg .note { fill: var(--muted); font-size: 12px; }
+svg .crosshair { stroke: var(--axis); stroke-width: 1; }
+svg .hit { fill: transparent; pointer-events: all; }
+svg .hit.x { cursor: crosshair; }
+svg .hit:focus { outline: none; }
+svg .hit:focus-visible { stroke: var(--series-1); stroke-width: 2; }
+.tooltip {
+  position: fixed;
+  z-index: 10;
+  pointer-events: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  font-size: 12px;
+  min-width: 160px;
+  max-width: min(340px, calc(100vw - 16px));
+}
+.tip-title { color: var(--muted); margin-bottom: 4px; }
+.tip-row { display: grid; grid-template-columns: 14px auto 1fr; align-items: center; column-gap: 8px; }
+.tip-row strong { font-variant-numeric: tabular-nums; font-weight: 600; }
+.tip-name { color: var(--ink-2); }
+.tip-detail { grid-column: 2 / -1; color: var(--muted); margin-bottom: 4px; }
+details.table-view { margin-top: 8px; }
+details.table-view summary { cursor: pointer; color: var(--ink-2); font-size: 12px; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--gridline); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--ink-2); font-weight: 600; }
+td .muted { color: var(--muted); }
+.warnings { border: 1px solid var(--border); border-left: 3px solid var(--warning); background: var(--surface); border-radius: 8px; padding: 12px 16px; margin: 16px 0; }
+.warnings h2 { font-size: 14px; margin: 0 0 4px; }
+.warnings ul { margin: 0; padding-left: 18px; color: var(--ink-2); overflow-wrap: anywhere; }
+.meta { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; font-size: 13px; }
+.meta dt { color: var(--muted); }
+.meta dd { margin: 0; color: var(--ink-2); overflow-wrap: anywhere; }
+nav.toc { display: flex; flex-wrap: wrap; gap: 8px; margin: 24px 0 0; }
+nav.toc a { color: var(--ink-2); text-decoration: none; border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; font-size: 12px; background: var(--surface); }
+nav.toc a:hover { color: var(--ink); }
+footer { margin-top: 56px; color: var(--ink-2); font-size: 13px; }
+footer ul { padding-left: 18px; max-width: 80ch; }
+@media (max-width: 520px) {
+  h1 { font-size: 24px; }
+  .meta { grid-template-columns: 1fr; gap: 0; }
+  .meta dd { margin-bottom: 6px; }
+}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1 id="title">Concurrency benchmark</h1>
+    <p class="sub" id="subtitle"></p>
+    <div class="legend" id="global-legend"></div>
+  </header>
+  <div id="warnings"></div>
+  <div class="card">
+    <h3>At the highest thread count measured</h3>
+    <p class="card-sub">Median per implementation; bold is best in the row.</p>
+    <div class="table-wrap" id="overview"></div>
+  </div>
+  <nav class="toc" id="toc" aria-label="Tests"></nav>
+  <div id="sections"></div>
+  <footer>
+    <div class="card">
+      <h3>Machine and method</h3>
+      <dl class="meta" id="machine" style="margin-top:8px"></dl>
+      <ul id="method"></ul>
+    </div>
+  </footer>
+</main>
+<div class="tooltip" id="tooltip" role="status" hidden></div>
+<script>
+const DATA = {"meta": {"profile": "full", "started_at": "2026-09-16T23:18:03+05:30", "workloads": ["spsc", "spsc-cap1", "mpmc", "mpmc-cap1", "pingpong", "spawn", "cpu", "select", "select-cap1", "mutex", "idle"], "impls": ["tokio", "crossbeam", "go", "tokio-tuned"], "threads": [1, 2, 6, 12], "sizes": {"spsc": [10000000], "spsc-cap1": [1000000], "mpmc": [10000000], "mpmc-cap1": [1000000], "pingpong": [1000000], "spawn": [10000, 1000000], "cpu": [16000000], "select": [10000000], "select-cap1": [1000000], "mutex": [10000000], "idle": [10000, 100000, 1000000]}, "params": {"spsc": {"capacity": 1024}, "spsc-cap1": {"capacity": 1}, "mpmc": {"capacity": 1024, "producers": 4, "consumers": 4}, "mpmc-cap1": {"capacity": 1, "producers": 4, "consumers": 4}, "pingpong": {"sample-every": 16}, "spawn": {}, "cpu": {"tasks": 256, "rounds": 32}, "select": {"capacity": 1024}, "select-cap1": {"capacity": 1}, "mutex": {"workers": 8}, "idle": {"settle-ms": 200}}, "warmup": 3, "reps": 10, "seed": 4273460670, "cpu_order": [0, 2, 4, 6, 8, 10, 1, 3, 5, 7, 9, 11], "cpu_model": "AMD Ryzen 5 5625U with Radeon Graphics", "logical_cpus": 12, "kernel": "6.8.0-11-generic", "governors": ["powersave"], "energy_performance_preference": ["balance_performance"], "on_ac_power": null, "load_avg_1m": 3.33, "mem_total_kb": 23392964, "mem_available_kb": 13376692, "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)", "go": "go version go1.27.0 linux/amd64", "crates": {"async-channel": "2.5.0", "crossbeam": "0.8.5", "crossbeam-channel": "0.5.17", "crossbeam-deque": "0.8.8", "parking_lot": "0.12.5", "tokio": "1.53.1"}, "variant_help": {}, "warnings": ["CPU governor is 'powersave', not 'performance', so frequency scaling adds noise. Fix: echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor", "1-minute load average was 3.33 at start; other programs compete for CPU."]}, "impls": ["tokio", "crossbeam", "go", "tokio-tuned"], "cvWarn": 5.0, "sections": [{"workload": "spsc", "title": "One sender, one receiver", "blurb": "Raw message rate through a bounded channel of capacity 1024.", "unit": "messages/s", "sizes": [{"size": 10000000, "points": [{"threads": 1, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 28594581.9, "ops_min": 28081979.4, "ops_max": 28969093.5, "cv_pct": 0.9257666910339998, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 46353290.099999994, "ops_min": 27596703.0, "ops_max": 46504488.5, "cv_pct": 13.324178202392645, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 35970271.18306288, "ops_min": 35307945.60933851, "ops_max": 36482553.70170797, "cv_pct": 1.0915334712783313, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 136304305.7, "ops_min": 134902472.1, "ops_max": 137410587.6, "cv_pct": 0.6194851774042672, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 13032899.3, "ops_min": 12563630.7, "ops_max": 13381288.6, "cv_pct": 1.5535872133519746, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 40685729.9, "ops_min": 37041881.6, "ops_max": 42753224.9, "cv_pct": 4.0628860520872365, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 30588499.09437979, "ops_min": 23004309.178697508, "ops_max": 33120527.869673904, "cv_pct": 9.61481675938254, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 126103083.6, "ops_min": 121936536.6, "ops_max": 130715393.3, "cv_pct": 2.066837961359133, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 12989857.1, "ops_min": 12406817.5, "ops_max": 14412994.1, "cv_pct": 5.391194123581763, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 37093143.8, "ops_min": 30684016.4, "ops_max": 40830068.8, "cv_pct": 8.604627213994084, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 28621208.743157603, "ops_min": 28308022.903591048, "ops_max": 28996447.227701295, "cv_pct": 0.9004496109600524, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 129505073.55000001, "ops_min": 127366748.0, "ops_max": 131914280.4, "cv_pct": 0.9855147444396372, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 12834959.45, "ops_min": 12491533.2, "ops_max": 14119960.5, "cv_pct": 4.078537002589972, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 36399546.85, "ops_min": 32915674.0, "ops_max": 41047260.9, "cv_pct": 7.082105154838401, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 28506507.766267605, "ops_min": 28187975.06339511, "ops_max": 28712285.96017281, "cv_pct": 0.5817511476650403, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 129096813.7, "ops_min": 123401847.4, "ops_max": 131653140.8, "cv_pct": 2.00101700113374, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}]}]}, {"workload": "spsc-cap1", "title": "One sender, one receiver, capacity 1", "blurb": "The same test with a channel of capacity 1, so nearly every message is a hand-off between tasks.", "unit": "messages/s", "sizes": [{"size": 1000000, "points": [{"threads": 1, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 8255539.35, "ops_min": 7708958.7, "ops_max": 8615224.2, "cv_pct": 3.0920532463623354, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 131688.25, "ops_min": 128709.2, "ops_max": 133295.7, "cv_pct": 1.0282916400705622, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 9697281.52822275, "ops_min": 8701924.975448824, "ops_max": 10281161.176550588, "cv_pct": 4.2619309880808975, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 35668814.45, "ops_min": 34599175.3, "ops_max": 37481874.7, "cv_pct": 2.3880599342212827, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 4725660.4, "ops_min": 4495475.7, "ops_max": 4807499.6, "cv_pct": 2.5371436758325245, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 5994914.4, "ops_min": 4906331.5, "ops_max": 6222289.5, "cv_pct": 6.428915666231666, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 10847746.453742329, "ops_min": 9908780.657061351, "ops_max": 11076959.123052211, "cv_pct": 3.4409101114343317, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 19081086.85, "ops_min": 17286098.7, "ops_max": 20843373.3, "cv_pct": 6.6382661740595355, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 4835952.05, "ops_min": 4300226.2, "ops_max": 5059929.1, "cv_pct": 5.83046612781749, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 6992605.550000001, "ops_min": 6556294.9, "ops_max": 7479324.7, "cv_pct": 4.23958046826404, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 10198456.412951767, "ops_min": 9340416.669449333, "ops_max": 11291513.616786307, "cv_pct": 6.696753068147553, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 20374768.1, "ops_min": 18053810.4, "ops_max": 22137848.5, "cv_pct": 6.359549936037102, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 4516869.300000001, "ops_min": 3957229.6, "ops_max": 4624251.0, "cv_pct": 4.76601129967698, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 6637567.25, "ops_min": 5908968.0, "ops_max": 7031727.8, "cv_pct": 6.7080086508879715, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 9921888.840867024, "ops_min": 7824428.585892587, "ops_max": 11151178.161559451, "cv_pct": 9.596865509556062, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 18218387.5, "ops_min": 15089232.1, "ops_max": 20228763.0, "cv_pct": 8.460396358249234, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}]}]}, {"workload": "mpmc", "title": "Many senders, many receivers", "blurb": "4 senders and 4 receivers sharing one bounded channel of capacity 1024.", "unit": "messages/s", "sizes": [{"size": 10000000, "points": [{"threads": 1, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 41705792.05, "ops_min": 40995487.2, "ops_max": 42956820.7, "cv_pct": 1.4493226432566388, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 25683541.6, "ops_min": 13632717.5, "ops_max": 40803543.2, "cv_pct": 32.65833049339213, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 33519602.935412075, "ops_min": 26661667.28411089, "ops_max": 34067436.627073035, "cv_pct": 6.772860051902183, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 123212411.25, "ops_min": 115253036.3, "ops_max": 129464386.8, "cv_pct": 3.265962403737642, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 12550121.15, "ops_min": 11645519.5, "ops_max": 14121567.2, "cv_pct": 6.2535882153726625, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 24746605.75, "ops_min": 17650874.6, "ops_max": 27575277.0, "cv_pct": 13.847413034306147, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 20078786.518732253, "ops_min": 17261771.951064356, "ops_max": 21766899.46213273, "cv_pct": 6.869638224935811, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 96183595.95, "ops_min": 78665383.9, "ops_max": 99685573.8, "cv_pct": 6.677897853593458, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 8478614.9, "ops_min": 7903514.7, "ops_max": 9811801.0, "cv_pct": 6.723018497054692, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 25918767.55, "ops_min": 18697542.9, "ops_max": 33251407.2, "cv_pct": 18.14175150310619, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 18325506.015148845, "ops_min": 16802357.690700896, "ops_max": 18905885.942056805, "cv_pct": 3.8973475564796902, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 64663577.599999994, "ops_min": 57867721.8, "ops_max": 74967216.8, "cv_pct": 7.076143264927761, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 9456416.0, "ops_min": 8808230.2, "ops_max": 11576720.8, "cv_pct": 8.531059946229915, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 24089115.299999997, "ops_min": 17671523.9, "ops_max": 29807264.9, "cv_pct": 14.407163089791819, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 15330822.536059093, "ops_min": 13770159.83587721, "ops_max": 16966604.47800983, "cv_pct": 7.556144937402198, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 67666287.05, "ops_min": 52777303.7, "ops_max": 83071683.1, "cv_pct": 12.952649991586476, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}]}]}, {"workload": "mpmc-cap1", "title": "Many senders, many receivers, capacity 1", "blurb": "4 senders and 4 receivers sharing one channel of capacity 1.", "unit": "messages/s", "sizes": [{"size": 1000000, "points": [{"threads": 1, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 4610775.6, "ops_min": 4543810.4, "ops_max": 4695137.6, "cv_pct": 1.2114979937563175, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 109139.54999999999, "ops_min": 108285.0, "ops_max": 109575.8, "cv_pct": 0.3743703162088418, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 10379808.146695383, "ops_min": 10130638.637485836, "ops_max": 10631106.720322287, "cv_pct": 1.525222872759262, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 34856291.85, "ops_min": 34120441.9, "ops_max": 35198281.4, "cv_pct": 0.9640271794186916, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 2422286.35, "ops_min": 2348123.3, "ops_max": 2600798.4, "cv_pct": 3.6870013658215677, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 7194899.8, "ops_min": 4701705.6, "ops_max": 7707963.8, "cv_pct": 17.481626748346592, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 6927872.370265309, "ops_min": 4893989.77044555, "ops_max": 7440745.640692212, "cv_pct": 10.914193103070048, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 31523710.85, "ops_min": 27137177.6, "ops_max": 32756936.8, "cv_pct": 6.00804593665452, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 2062123.35, "ops_min": 1837313.0, "ops_max": 2139079.8, "cv_pct": 6.059839276835402, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 5052532.6, "ops_min": 4952998.9, "ops_max": 5114522.8, "cv_pct": 1.0433063611571738, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 6698416.035207577, "ops_min": 6572443.157600969, "ops_max": 6751759.086432981, "cv_pct": 0.8421663397161337, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 19030170.35, "ops_min": 18323273.9, "ops_max": 19937206.2, "cv_pct": 2.9662932033266083, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 1945440.8, "ops_min": 1805893.2, "ops_max": 2112133.4, "cv_pct": 5.902382929117392, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 4829548.550000001, "ops_min": 4500472.5, "ops_max": 4872152.7, "cv_pct": 2.313143637085472, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 6204475.950206384, "ops_min": 6029580.943220009, "ops_max": 6269858.483588454, "cv_pct": 1.150348955353339, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 18117551.5, "ops_min": 17667902.9, "ops_max": 18442944.8, "cv_pct": 1.2166372477299043, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}]}]}, {"workload": "pingpong", "title": "Ping-pong", "blurb": "Two tasks pass one token back and forth over capacity-1 channels; measures wake-up cost.", "unit": "round trips/s", "sizes": [{"size": 1000000, "points": [{"threads": 1, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 7552483.7, "ops_min": 3885771.0, "ops_max": 7663672.3, "cv_pct": 22.347296795230996, "lat_p50_ns": 200.0, "lat_p99_ns": 381.0, "lat_p999_ns": 451.0, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 134996.95, "ops_min": 133395.8, "ops_max": 135413.7, "cv_pct": 0.4760018408650179, "lat_p50_ns": 7374.0, "lat_p99_ns": 8611.0, "lat_p999_ns": 12949.0, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 3781673.0661692712, "ops_min": 3769031.346882951, "ops_max": 3842722.2213117103, "cv_pct": 0.80442013170154, "lat_p50_ns": 271.0, "lat_p99_ns": 321.0, "lat_p999_ns": 511.0, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 13233473.4, "ops_min": 12952987.8, "ops_max": 13386642.9, "cv_pct": 1.1142192148651648, "lat_p50_ns": 100.0, "lat_p99_ns": 301.0, "lat_p999_ns": 330.0, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 4309364.65, "ops_min": 3203589.7, "ops_max": 4350462.3, "cv_pct": 8.366290333118137, "lat_p50_ns": 190.0, "lat_p99_ns": 2244.5, "lat_p999_ns": 2610.0, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 3810857.75, "ops_min": 3805635.5, "ops_max": 3829573.2, "cv_pct": 0.20145235236627723, "lat_p50_ns": 240.0, "lat_p99_ns": 291.0, "lat_p999_ns": 1072.0, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 4107249.611540919, "ops_min": 4092455.42705241, "ops_max": 4134274.48824214, "cv_pct": 0.35654630431712175, "lat_p50_ns": 241.0, "lat_p99_ns": 321.0, "lat_p999_ns": 2460.0, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 7242703.5, "ops_min": 7140435.6, "ops_max": 7397952.1, "cv_pct": 1.141653046109961, "lat_p50_ns": 85.5, "lat_p99_ns": 2159.0, "lat_p999_ns": 2339.5, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 4373661.75, "ops_min": 4241394.7, "ops_max": 4412036.0, "cv_pct": 1.2517913627937476, "lat_p50_ns": 190.0, "lat_p99_ns": 2224.5, "lat_p999_ns": 2635.0, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 3878699.4, "ops_min": 3784062.0, "ops_max": 4194111.3, "cv_pct": 4.09368737750071, "lat_p50_ns": 281.0, "lat_p99_ns": 301.0, "lat_p999_ns": 1087.0, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 4001902.5233441405, "ops_min": 3901280.210953145, "ops_max": 4056419.5715721603, "cv_pct": 1.0962611580920967, "lat_p50_ns": 241.0, "lat_p99_ns": 420.5, "lat_p999_ns": 2660.0, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 7721519.199999999, "ops_min": 7551708.1, "ops_max": 7846693.7, "cv_pct": 1.3951847772848218, "lat_p50_ns": 90.0, "lat_p99_ns": 2149.0, "lat_p999_ns": 2349.0, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 4372367.800000001, "ops_min": 4142606.8, "ops_max": 4433918.9, "cv_pct": 2.5817255206589316, "lat_p50_ns": 190.0, "lat_p99_ns": 2179.0, "lat_p999_ns": 2580.0, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 3940758.5, "ops_min": 3776836.4, "ops_max": 4870498.5, "cv_pct": 10.244122228416604, "lat_p50_ns": 280.0, "lat_p99_ns": 301.0, "lat_p999_ns": 1157.0, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 3996418.717043598, "ops_min": 3965328.8930426324, "ops_max": 4046657.753471321, "cv_pct": 0.5905594707821924, "lat_p50_ns": 241.0, "lat_p99_ns": 431.0, "lat_p999_ns": 2579.0, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 7529902.050000001, "ops_min": 6813305.5, "ops_max": 7608004.4, "cv_pct": 3.788073411021581, "lat_p50_ns": 90.0, "lat_p99_ns": 2134.0, "lat_p999_ns": 2354.5, "bytes_per_task": null, "variants": []}]}]}, {"workload": "spawn", "title": "Spawn and join", "blurb": "Start tasks that each return a number, then wait for all of them.", "unit": "tasks/s", "sizes": [{"size": 10000, "points": [{"threads": 1, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 2103474.2, "ops_min": 1340581.4, "ops_max": 2168363.4, "cv_pct": 18.36088616215485, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 18460.55, "ops_min": 18219.1, "ops_max": 18557.9, "cv_pct": 0.5828146911904163, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 724209.2637894512, "ops_min": 530666.5006741852, "ops_max": 769076.4215089448, "cv_pct": 9.553084640833557, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 7419455.55, "ops_min": 6803484.7, "ops_max": 7571020.0, "cv_pct": 3.6440184526141577, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 2485774.6, "ops_min": 1650585.8, "ops_max": 2732840.0, "cv_pct": 12.010196105451291, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 21690.0, "ops_min": 21125.6, "ops_max": 22235.8, "cv_pct": 1.6058007461524235, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 4178025.6610988034, "ops_min": 4034967.0242319945, "ops_max": 4346612.81503163, "cv_pct": 2.243835635722976, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 5684980.5, "ops_min": 5203479.5, "ops_max": 5853286.2, "cv_pct": 3.635829219290085, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 2689851.4000000004, "ops_min": 2571091.3, "ops_max": 2903208.5, "cv_pct": 3.165274686277384, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 29765.85, "ops_min": 28194.6, "ops_max": 30304.1, "cv_pct": 2.56525506435469, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 4226461.93208459, "ops_min": 4057901.3832574235, "ops_max": 4312434.127568701, "cv_pct": 1.9667703216215588, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 5211234.800000001, "ops_min": 3902862.4, "ops_max": 7446870.3, "cv_pct": 19.33499667462152, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 2644751.95, "ops_min": 1740302.0, "ops_max": 2736825.7, "cv_pct": 12.769982429105067, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 29178.0, "ops_min": 28202.9, "ops_max": 31044.4, "cv_pct": 3.2753200488629757, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 4138468.303460533, "ops_min": 3785769.3686586, "ops_max": 4377551.565368664, "cv_pct": 3.8063272820198666, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 5824302.55, "ops_min": 5561364.1, "ops_max": 6195383.8, "cv_pct": 3.33034508533759, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}]}, {"size": 1000000, "points": [{"threads": 1, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 2631861.9, "ops_min": 2324478.4, "ops_max": 2637576.0, "cv_pct": 4.094567997359964, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "crossbeam", "status": "skipped", "reason": "one OS thread per task; capped at 20000", "runs": 0, "ops_median": null, "ops_min": null, "ops_max": null, "cv_pct": null, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 1433651.3201519628, "ops_min": 1410430.9970217114, "ops_max": 1451330.2018929769, "cv_pct": 0.7781721601787999, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 6643399.85, "ops_min": 5928296.9, "ops_max": 6702884.1, "cv_pct": 3.4818608739116996, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 2465860.1, "ops_min": 2397615.9, "ops_max": 2480977.8, "cv_pct": 1.0536813784859536, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "crossbeam", "status": "skipped", "reason": "one OS thread per task; capped at 20000", "runs": 0, "ops_median": null, "ops_min": null, "ops_max": null, "cv_pct": null, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 5303499.487535059, "ops_min": 5103192.471476522, "ops_max": 5489006.896926188, "cv_pct": 2.402925151551392, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 6190528.35, "ops_min": 6081408.6, "ops_max": 6276459.6, "cv_pct": 1.0153106618743177, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 2549762.2, "ops_min": 2528806.4, "ops_max": 2621407.8, "cv_pct": 1.1503055734690086, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "crossbeam", "status": "skipped", "reason": "one OS thread per task; capped at 20000", "runs": 0, "ops_median": null, "ops_min": null, "ops_max": null, "cv_pct": null, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 5608634.156712906, "ops_min": 5563660.201189075, "ops_max": 5688067.493516769, "cv_pct": 0.667487962492246, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 4742208.8, "ops_min": 4673083.6, "ops_max": 4803877.0, "cv_pct": 0.9417578579687468, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 2588714.3, "ops_min": 2222465.6, "ops_max": 2618458.5, "cv_pct": 5.820323177133386, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "crossbeam", "status": "skipped", "reason": "one OS thread per task; capped at 20000", "runs": 0, "ops_median": null, "ops_min": null, "ops_max": null, "cv_pct": null, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 5553658.315480175, "ops_min": 5495875.114899513, "ops_max": 5663202.046133022, "cv_pct": 1.033006447638784, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 5213815.55, "ops_min": 4901081.6, "ops_max": 5392155.5, "cv_pct": 2.6883234746004474, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}]}]}, {"workload": "cpu", "title": "CPU-heavy parallel work", "blurb": "Hash items with splitmix64 (32 rounds each), split into 256 chunks.", "unit": "items/s", "sizes": [{"size": 16000000, "points": [{"threads": 1, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 13682722.35, "ops_min": 13646655.6, "ops_max": 13692156.5, "cv_pct": 0.10340455961773394, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 13745827.0, "ops_min": 13731967.8, "ops_max": 13756397.9, "cv_pct": 0.0585206135563788, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 13187974.654527485, "ops_min": 13172639.817206439, "ops_max": 13195384.375613062, "cv_pct": 0.06093006800548663, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 13659320.35, "ops_min": 13628721.8, "ops_max": 13672622.9, "cv_pct": 0.09594875103825382, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 27319403.799999997, "ops_min": 27292235.5, "ops_max": 27349137.9, "cv_pct": 0.07020181444902533, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 27457547.049999997, "ops_min": 27443138.9, "ops_max": 27483435.7, "cv_pct": 0.05321658399136328, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 26326699.983015053, "ops_min": 26221389.66760726, "ops_max": 26363409.943886735, "cv_pct": 0.17519178786292122, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 27267874.799999997, "ops_min": 27231762.3, "ops_max": 27302709.4, "cv_pct": 0.08708131134997309, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 77661351.05000001, "ops_min": 74590487.5, "ops_max": 77970883.4, "cv_pct": 1.280094071014605, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 77235040.45, "ops_min": 73455617.2, "ops_max": 78007331.2, "cv_pct": 1.6907366147813585, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 71828892.48769352, "ops_min": 69586723.6220662, "ops_max": 71978392.51843633, "cv_pct": 1.004121611441896, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 77489572.25, "ops_min": 76710560.6, "ops_max": 77706033.6, "cv_pct": 0.3912823488164705, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 114876809.6, "ops_min": 110594770.2, "ops_max": 117153313.6, "cv_pct": 1.4740615331070093, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 115174389.7, "ops_min": 112521061.7, "ops_max": 116514775.9, "cv_pct": 0.9397977680148736, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 106539295.68826249, "ops_min": 103278760.47052176, "ops_max": 107606690.01552495, "cv_pct": 1.189095736095207, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 116824653.4, "ops_min": 113525415.1, "ops_max": 117870729.8, "cv_pct": 1.0733667014310804, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}]}]}, {"workload": "select", "title": "Select", "blurb": "One consumer waits on two channels of capacity 1024 at once until both close.", "unit": "messages/s", "sizes": [{"size": 10000000, "points": [{"threads": 1, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 23022539.700000003, "ops_min": 22710393.9, "ops_max": 23240105.3, "cv_pct": 0.6972023683477286, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 11122294.0, "ops_min": 10669334.5, "ops_max": 11307873.2, "cv_pct": 1.867878776690911, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 17656673.478154924, "ops_min": 17231286.9455808, "ops_max": 17961826.01496724, "cv_pct": 1.563933104086546, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 36679739.7, "ops_min": 36178084.4, "ops_max": 37134949.4, "cv_pct": 0.7045063463961567, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 20688756.5, "ops_min": 20585767.2, "ops_max": 21069896.8, "cv_pct": 0.8139048332867388, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 9156633.45, "ops_min": 9113169.7, "ops_max": 9189968.6, "cv_pct": 0.28210406858488757, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 16861414.131956458, "ops_min": 16672983.08736779, "ops_max": 17173799.108014856, "cv_pct": 0.8611253939918175, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 30107107.35, "ops_min": 30005207.6, "ops_max": 30425708.7, "cv_pct": 0.4312352012449858, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 20758264.15, "ops_min": 20407324.2, "ops_max": 21322443.3, "cv_pct": 1.471597500359723, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 13237374.600000001, "ops_min": 12599488.9, "ops_max": 13468926.7, "cv_pct": 2.11745754738635, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 14192541.334686935, "ops_min": 14027667.014539717, "ops_max": 14220347.654281415, "cv_pct": 0.545889201497027, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 40541249.599999994, "ops_min": 37858843.6, "ops_max": 41416269.6, "cv_pct": 2.9595153443795326, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 20267292.4, "ops_min": 19354164.3, "ops_max": 20690667.5, "cv_pct": 2.0473754845884993, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 13216795.899999999, "ops_min": 13035290.4, "ops_max": 13499564.3, "cv_pct": 1.2494394710309709, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 13780752.473778874, "ops_min": 13481075.02287543, "ops_max": 14068142.62209836, "cv_pct": 1.4061054024137811, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 40663865.2, "ops_min": 36670333.6, "ops_max": 41651656.6, "cv_pct": 4.595166895440152, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}]}]}, {"workload": "select-cap1", "title": "Select, capacity 1", "blurb": "The same select test with both channels at capacity 1.", "unit": "messages/s", "sizes": [{"size": 1000000, "points": [{"threads": 1, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 7031313.1, "ops_min": 6917454.9, "ops_max": 7137189.9, "cv_pct": 0.9713544031550579, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 154251.35, "ops_min": 147359.6, "ops_max": 154641.7, "cv_pct": 1.4256572187012615, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 7083324.339069147, "ops_min": 6823777.8277839385, "ops_max": 7477602.263165119, "cv_pct": 2.648427417831518, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 6038121.449999999, "ops_min": 5975095.2, "ops_max": 6514474.5, "cv_pct": 3.555866229919165, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 3957540.8, "ops_min": 3521921.7, "ops_max": 4010629.5, "cv_pct": 3.6248522823520193, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 1567390.85, "ops_min": 880147.9, "ops_max": 3389184.0, "cv_pct": 41.13202188112204, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 7239520.638396919, "ops_min": 7047813.153790387, "ops_max": 7684883.798985419, "cv_pct": 2.33343832650687, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 3551033.85, "ops_min": 3511899.8, "ops_max": 3718155.2, "cv_pct": 2.092188669952674, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 5882259.05, "ops_min": 5763867.7, "ops_max": 5977049.9, "cv_pct": 0.9790486168192317, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 3081997.9000000004, "ops_min": 1996231.5, "ops_max": 6192696.9, "cv_pct": 37.023754776211284, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 7232494.168055998, "ops_min": 7171830.055597819, "ops_max": 7332535.753865956, "cv_pct": 0.6412961924790611, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 5278158.050000001, "ops_min": 5182043.9, "ops_max": 5607396.4, "cv_pct": 2.7454343336401483, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 5782182.5, "ops_min": 5632989.6, "ops_max": 5856516.5, "cv_pct": 1.168513627960382, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 3315548.2, "ops_min": 1936909.7, "ops_max": 4444272.0, "cv_pct": 23.421652764556853, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 7174799.501134178, "ops_min": 6913018.343127306, "ops_max": 7299441.796357005, "cv_pct": 1.547206757135928, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 5145500.25, "ops_min": 4884965.7, "ops_max": 5309288.5, "cv_pct": 2.420725962730782, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}]}]}, {"workload": "mutex", "title": "Lock contention", "blurb": "8 workers increment one shared counter under a mutex.", "unit": "increments/s", "sizes": [{"size": 10000000, "points": [{"threads": 1, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 50455938.35, "ops_min": 49911884.6, "ops_max": 50973302.8, "cv_pct": 0.6891800183634897, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 226174181.55, "ops_min": 225223596.9, "ops_max": 228002350.3, "cv_pct": 0.4706413109461841, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 259246493.75314295, "ops_min": 251712171.36081338, "ops_max": 263332303.87958002, "cv_pct": 1.2927916444022567, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 228201530.0, "ops_min": 227504435.4, "ops_max": 229616068.8, "cv_pct": 0.3319715448757654, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 9464394.35, "ops_min": 9280473.6, "ops_max": 9522172.1, "cv_pct": 0.8640427874367838, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 150266241.45, "ops_min": 136971249.5, "ops_max": 163596802.7, "cv_pct": 5.76252975619868, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 57037261.41479019, "ops_min": 45178811.16105845, "ops_max": 64162239.92124778, "cv_pct": 13.086970036467257, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 142517498.65, "ops_min": 141471550.3, "ops_max": 150376534.6, "cv_pct": 1.8781987305905392, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 9905141.0, "ops_min": 9616349.3, "ops_max": 9979053.7, "cv_pct": 1.0626263744717634, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 75124285.94999999, "ops_min": 74475370.0, "ops_max": 77092855.6, "cv_pct": 1.0234012839144622, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 23665708.321627624, "ops_min": 23148211.53781076, "ops_max": 24926285.992958743, "cv_pct": 2.5565959033601238, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 6, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 80510750.6, "ops_min": 78422450.2, "ops_max": 82467086.7, "cv_pct": 1.5763440881830952, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 9468162.899999999, "ops_min": 9113405.8, "ops_max": 9858959.8, "cv_pct": 2.3436288796464186, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 81591999.1, "ops_min": 70823752.8, "ops_max": 85466460.1, "cv_pct": 5.637663145067499, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 26984640.549905628, "ops_min": 26244403.03987451, "ops_max": 27669658.586849663, "cv_pct": 1.3788378366941456, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 82602700.8, "ops_min": 78071400.3, "ops_max": 96381644.2, "cv_pct": 6.853289366958472, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}]}]}, {"workload": "idle", "title": "Memory per idle task", "blurb": "Resident memory added per task parked on a channel or semaphore.", "unit": "bytes/task", "sizes": [{"size": 10000, "points": [{"threads": 12, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 1123694.1, "ops_min": 974718.5, "ops_max": 1500969.2, "cv_pct": 1.3954436308829212, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": 393.2, "variants": []}, {"threads": 12, "impl": "crossbeam", "status": "ok", "reason": null, "runs": 10, "ops_median": 42756.85, "ops_min": 42175.9, "ops_max": 43286.9, "cv_pct": 0.1600473002686554, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": 10079.4, "variants": []}, {"threads": 12, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 578448.8100052315, "ops_min": 534172.4826921439, "ops_max": 657947.2860529781, "cv_pct": 0.8466523814961366, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": 2811.4943999999996, "variants": []}, {"threads": 12, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 2564046.15, "ops_min": 2069998.7, "ops_max": 3431567.7, "cv_pct": 27.149722580733055, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": 224.9, "variants": []}]}, {"size": 100000, "points": [{"threads": 12, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 2027944.6, "ops_min": 1765207.9, "ops_max": 2070801.2, "cv_pct": 0.20078393053639984, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": 385.4, "variants": []}, {"threads": 12, "impl": "crossbeam", "status": "skipped", "reason": "one OS thread per task; capped at 20000", "runs": 0, "ops_median": null, "ops_min": null, "ops_max": null, "cv_pct": null, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 602709.6394062522, "ops_min": 473289.26035343565, "ops_max": 707803.9640943223, "cv_pct": 0.1161804833336969, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": 2765.6192, "variants": []}, {"threads": 12, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 2380862.65, "ops_min": 1280225.6, "ops_max": 4636989.8, "cv_pct": 2.47690575856596, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": 253.14999999999998, "variants": []}]}, {"size": 1000000, "points": [{"threads": 12, "impl": "tokio", "status": "ok", "reason": null, "runs": 10, "ops_median": 1918010.9500000002, "ops_min": 1860441.7, "ops_max": 2104695.4, "cv_pct": 0.0219579742399625, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": 384.0, "variants": []}, {"threads": 12, "impl": "crossbeam", "status": "skipped", "reason": "one OS thread per task; capped at 20000", "runs": 0, "ops_median": null, "ops_min": null, "ops_max": null, "cv_pct": null, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "go", "status": "ok", "reason": null, "runs": 10, "ops_median": 633790.0631835554, "ops_min": 553964.3769008383, "ops_max": 662585.9390113429, "cv_pct": 0.32903214234345035, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": 2758.187008, "variants": []}, {"threads": 12, "impl": "tokio-tuned", "status": "ok", "reason": null, "runs": 10, "ops_median": 3010139.2, "ops_min": 2001835.5, "ops_max": 4384754.4, "cv_pct": 0.35374320402045895, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": 256.05, "variants": []}]}]}]};
+
+// Color follows the implementation's position in the run, so it is identical in every chart.
+const IMPLS = DATA.impls;
+const color = impl => `var(--series-${IMPLS.indexOf(impl) + 1})`;
+const implsIn = points => IMPLS.filter(impl => points.some(p => p.impl === impl));
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+function el(tag, attrs = {}, text) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (text != null) e.textContent = text;
+  return e;
+}
+function sv(tag, attrs = {}, text) {
+  const e = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+// ---- number formatting (mirrors report.py)
+const sig = v => String(Number(v.toPrecision(3)));
+function fmtSI(v) {
+  if (v == null) return "–";
+  for (const [d, s] of [[1e9, "B"], [1e6, "M"], [1e3, "K"]]) if (Math.abs(v) >= d) return sig(v / d) + s;
+  return sig(v);
+}
+function fmtNs(v) {
+  if (v == null) return "–";
+  if (v === 0) return "0";
+  for (const [d, u] of [[1e9, "s"], [1e6, "ms"], [1e3, "µs"]]) if (v >= d) return `${sig(v / d)} ${u}`;
+  return `${Math.round(v)} ns`;
+}
+function fmtBytes(v) {
+  if (v == null) return "–";
+  if (v === 0) return "0";
+  for (const [d, u] of [[1 << 30, "GiB"], [1 << 20, "MiB"], [1 << 10, "KiB"]]) if (v >= d) return `${sig(v / d)} ${u}`;
+  return `${Math.round(v)} B`;
+}
+const pct = v => `±${v.toFixed(1)}%`;
+const noisy = p => p.cv_pct > DATA.cvWarn;
+
+function niceScale(max, ticks = 4) {
+  if (!(max > 0)) max = 1;
+  const raw = max / ticks;
+  const pow = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map(k => k * pow).find(s => s >= raw * 0.999);
+  return { max: Math.ceil(max / step - 1e-9) * step, step };
+}
+
+// ---- tooltip
+const tip = document.getElementById("tooltip");
+function showTip(cx, cy, title, rows) {
+  tip.replaceChildren(el("div", { class: "tip-title" }, title));
+  for (const r of rows) {
+    const row = el("div", { class: "tip-row" });
+    const key = el("span", { class: "key-line" });
+    key.style.background = color(r.impl);
+    row.append(key, el("strong", {}, r.value), el("span", { class: "tip-name" }, r.impl));
+    if (r.detail) row.append(el("span", { class: "tip-detail" }, r.detail));
+    tip.append(row);
+  }
+  tip.hidden = false;
+  const b = tip.getBoundingClientRect();
+  let left = cx + 14, top = cy + 14;
+  if (left + b.width > innerWidth - 8) left = cx - 14 - b.width;
+  if (top + b.height > innerHeight - 8) top = cy - 14 - b.height;
+  tip.style.left = `${Math.max(8, left)}px`;
+  tip.style.top = `${Math.max(8, top)}px`;
+}
+const hideTip = () => { tip.hidden = true; };
+
+// ---- building blocks
+function legend(kind, impls = IMPLS) {
+  const box = el("div", { class: "legend" });
+  for (const impl of impls) {
+    const item = el("span", { class: "legend-item" });
+    const key = el("span", { class: kind === "rect" ? "key-rect" : "key-line" });
+    key.style.background = color(impl);
+    item.append(key, document.createTextNode(impl));
+    box.append(item);
+  }
+  return box;
+}
+
+function card(parent, title, subtitle, legendKind, impls) {
+  const c = el("div", { class: "card" });
+  c.append(el("h3", {}, title));
+  if (subtitle) c.append(el("p", { class: "card-sub" }, subtitle));
+  c.append(legend(legendKind, impls));
+  parent.append(c);
+  return c;
+}
+
+function missingNote(c, points) {
+  for (const impl of implsIn(points)) {
+    const mine = points.filter(p => p.impl === impl);
+    if (mine.length && mine.every(p => p.status !== "ok")) {
+      const p = mine[0];
+      c.append(el("p", { class: "card-note" }, `${impl}: ${p.status}${p.reason ? ` (${p.reason})` : ""}`));
+    }
+  }
+}
+
+const threadsOf = points => [...new Set(points.map(p => p.threads))].sort((a, b) => a - b);
+const findPoint = (points, impl, t) => points.find(p => p.impl === impl && p.threads === t);
+
+function tableView(c, points, cell) {
+  const details = el("details", { class: "table-view" });
+  details.append(el("summary", {}, "Table"));
+  const table = el("table");
+  const impls = implsIn(points);
+  const head = el("tr");
+  head.append(el("th", {}, "Threads"));
+  for (const impl of impls) head.append(el("th", {}, impl));
+  table.append(el("thead"));
+  table.tHead.append(head);
+  const body = el("tbody");
+  for (const t of threadsOf(points)) {
+    const tr = el("tr");
+    tr.append(el("td", {}, String(t)));
+    for (const impl of impls) {
+      const p = findPoint(points, impl, t);
+      const td = el("td");
+      if (p && p.status === "ok") td.textContent = cell(p);
+      else td.append(el("span", { class: "muted" }, p ? p.status : "–"));
+      tr.append(td);
+    }
+    body.append(tr);
+  }
+  table.append(body);
+  const wrap = el("div", { class: "table-wrap" });
+  wrap.append(table);
+  details.append(wrap);
+  c.append(details);
+}
+
+function responsive(host, draw) {
+  let lastWidth = 0;
+  const run = () => {
+    const w = Math.floor(host.clientWidth);
+    if (!w || w === lastWidth) return;
+    lastWidth = w;
+    draw(w);
+  };
+  new ResizeObserver(run).observe(host);
+  run();
+}
+
+// ---- line chart: value by thread count, one line per implementation
+function lineChart(c, cfg) {
+  const threads = threadsOf(cfg.points);
+  const series = implsIn(cfg.points).map(impl => ({
+    impl,
+    pts: threads.map(t => {
+      const row = findPoint(cfg.points, impl, t);
+      const v = row && row.status === "ok" ? cfg.value(row) : null;
+      return { row, v: v ?? null };
+    }),
+  }));
+  const host = el("div", { class: "chart" });
+  c.append(host);
+
+  responsive(host, W => {
+    const H = 240, m = { top: 12, right: 84, bottom: 44, left: 52 }, inset = 16;
+    const pw = W - m.left - m.right, ph = H - m.top - m.bottom;
+    const tops = series.flatMap(s => s.pts.filter(p => p.v != null).map(p => cfg.whisker ? Math.max(p.v, p.row.ops_max ?? 0) : p.v));
+    const { max, step } = niceScale(Math.max(0, ...tops));
+    const x = i => m.left + inset + (threads.length === 1 ? (pw - 2 * inset) / 2 : i * (pw - 2 * inset) / (threads.length - 1));
+    const y = v => m.top + ph - (v / max) * ph;
+
+    const svg = sv("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: "img", tabindex: 0, "aria-label": `${cfg.label}. Use left and right arrow keys to read values.` });
+    for (let v = 0; v <= max + step / 2; v += step) {
+      svg.append(sv("line", { x1: m.left, x2: W - m.right, y1: y(v), y2: y(v), class: v === 0 ? "ax" : "gl" }));
+      svg.append(sv("text", { x: m.left - 8, y: y(v) + 4, class: "tick", "text-anchor": "end" }, cfg.fmt(v)));
+    }
+    threads.forEach((t, i) => svg.append(sv("text", { x: x(i), y: m.top + ph + 18, class: "tick", "text-anchor": "middle" }, String(t))));
+    svg.append(sv("text", { x: m.left + pw / 2, y: H - 6, class: "axis-title", "text-anchor": "middle" }, "Worker threads (= pinned CPUs)"));
+
+    const cross = sv("line", { y1: m.top, y2: m.top + ph, class: "crosshair", visibility: "hidden" });
+    svg.append(cross);
+
+    for (const s of series) {
+      const stroke = color(s.impl);
+      if (cfg.whisker) {
+        s.pts.forEach((p, i) => {
+          if (p.v != null && p.row.ops_min != null) svg.append(sv("line", { x1: x(i), x2: x(i), y1: y(p.row.ops_min), y2: y(p.row.ops_max), stroke, class: "whisker" }));
+        });
+      }
+      let d = "", penDown = false;
+      s.pts.forEach((p, i) => {
+        if (p.v == null) { penDown = false; return; }
+        d += `${penDown ? "L" : "M"}${x(i)},${y(p.v)}`;
+        penDown = true;
+      });
+      if (d) svg.append(sv("path", { d, stroke, class: "line" }));
+      s.pts.forEach((p, i) => { if (p.v != null) svg.append(sv("circle", { cx: x(i), cy: y(p.v), r: 4, fill: stroke, class: "dot" })); });
+    }
+
+    // Direct labels at the right edge; colliding labels are dropped (legend + tooltip carry them).
+    const last = threads.length - 1;
+    const ends = series.filter(s => s.pts[last].v != null).map(s => ({ impl: s.impl, yy: y(s.pts[last].v) }));
+    for (const e of ends) {
+      if (ends.some(o => o !== e && Math.abs(o.yy - e.yy) < 14)) continue;
+      svg.append(sv("text", { x: x(last) + 10, y: e.yy + 4, class: "end-label" }, e.impl));
+    }
+
+    const show = (i, cx, cy) => {
+      cross.setAttribute("x1", x(i));
+      cross.setAttribute("x2", x(i));
+      cross.setAttribute("visibility", "visible");
+      showTip(cx, cy, `${threads[i]} thread${threads[i] === 1 ? "" : "s"}`, series.map(s => {
+        const p = s.pts[i];
+        if (p.v == null) return { impl: s.impl, value: p.row ? p.row.status : "no data", detail: p.row?.reason ?? null };
+        return { impl: s.impl, value: cfg.fmt(p.v), detail: cfg.detail ? cfg.detail(p.row) : null };
+      }));
+    };
+    const hide = () => { cross.setAttribute("visibility", "hidden"); hideTip(); };
+    const hit = sv("rect", { x: m.left, y: m.top, width: pw, height: ph, class: "hit x" });
+    svg.append(hit);
+    hit.addEventListener("pointermove", e => {
+      const px = e.clientX - svg.getBoundingClientRect().left;
+      let best = 0;
+      threads.forEach((_, i) => { if (Math.abs(x(i) - px) < Math.abs(x(best) - px)) best = i; });
+      show(best, e.clientX, e.clientY);
+    });
+    hit.addEventListener("pointerleave", hide);
+    let focus = last;
+    const showFocus = () => { const r = svg.getBoundingClientRect(); show(focus, r.left + x(focus), r.top + m.top); };
+    svg.addEventListener("focus", showFocus);
+    svg.addEventListener("blur", hide);
+    svg.addEventListener("keydown", e => {
+      if (e.key === "ArrowLeft") focus = Math.max(0, focus - 1);
+      else if (e.key === "ArrowRight") focus = Math.min(last, focus + 1);
+      else return;
+      e.preventDefault();
+      showFocus();
+    });
+    host.replaceChildren(svg);
+  });
+}
+
+// ---- horizontal bar chart: one bar per implementation at the highest thread count
+function barChart(c, cfg) {
+  const t = Math.max(...threadsOf(cfg.points));
+  const rows = implsIn(cfg.points).map(impl => {
+    const row = findPoint(cfg.points, impl, t);
+    const v = row && row.status === "ok" ? cfg.value(row) : null;
+    return { impl, row, v: v ?? null };
+  });
+  const host = el("div", { class: "chart" });
+  c.append(host);
+
+  responsive(host, W => {
+    const m = { top: 4, right: 76, bottom: 28, left: 84 }, rowH = 36, barH = 20;
+    const H = m.top + rows.length * rowH + m.bottom;
+    const pw = W - m.left - m.right;
+    const { max, step } = niceScale(cfg.max);
+    const x = v => m.left + (v / max) * pw;
+    const svg = sv("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": cfg.label });
+    const plotBottom = m.top + rows.length * rowH;
+    for (let v = 0; v <= max + step / 2; v += step) {
+      if (v > 0) svg.append(sv("line", { x1: x(v), x2: x(v), y1: m.top, y2: plotBottom, class: "gl" }));
+      svg.append(sv("text", { x: x(v), y: plotBottom + 18, class: "tick", "text-anchor": "middle" }, cfg.fmt(v)));
+    }
+    rows.forEach((r, i) => {
+      const top = m.top + i * rowH + (rowH - barH) / 2;
+      const mid = top + barH / 2 + 4;
+      svg.append(sv("text", { x: m.left - 10, y: mid, class: "row-label", "text-anchor": "end" }, r.impl));
+      if (r.v == null) {
+        svg.append(sv("text", { x: x(0) + 8, y: mid, class: "note" }, r.row ? r.row.status : "no data"));
+      } else {
+        const x0 = x(0), x1 = Math.max(x(r.v), x0 + 1), rad = Math.min(4, x1 - x0, barH / 2);
+        const d = `M${x0},${top}H${x1 - rad}Q${x1},${top} ${x1},${top + rad}V${top + barH - rad}Q${x1},${top + barH} ${x1 - rad},${top + barH}H${x0}Z`;
+        svg.append(sv("path", { d, fill: color(r.impl) }));
+        svg.append(sv("text", { x: x1 + 6, y: mid, class: "value-label" }, cfg.fmt(r.v)));
+      }
+      const hit = sv("rect", { x: 0, y: m.top + i * rowH, width: W, height: rowH, class: "hit", tabindex: 0, "aria-label": `${r.impl}: ${r.v == null ? (r.row ? r.row.status : "no data") : cfg.fmt(r.v)}` });
+      const show = (cx, cy) => showTip(cx, cy, `${t} thread${t === 1 ? "" : "s"}`, [
+        r.v == null
+          ? { impl: r.impl, value: r.row ? r.row.status : "no data", detail: r.row?.reason ?? null }
+          : { impl: r.impl, value: cfg.fmt(r.v), detail: cfg.detail ? cfg.detail(r.row) : null },
+      ]);
+      hit.addEventListener("pointermove", e => show(e.clientX, e.clientY));
+      hit.addEventListener("pointerleave", hideTip);
+      hit.addEventListener("focus", () => { const b = svg.getBoundingClientRect(); show(b.left + x(r.v ?? 0), b.top + top); });
+      hit.addEventListener("blur", hideTip);
+      svg.append(hit);
+    });
+    svg.append(sv("line", { x1: x(0), x2: x(0), y1: m.top, y2: plotBottom, class: "ax" }));
+    host.replaceChildren(svg);
+  });
+}
+
+// ---- page
+const meta = DATA.meta;
+const bases = [...new Set(IMPLS.map(i => i.split("+")[0]))];
+document.getElementById("title").textContent = bases.map(b => b[0].toUpperCase() + b.slice(1)).join(" vs ") +
+  (IMPLS.some(i => i.includes("+")) ? " (with Tokio variants)" : "");
+document.getElementById("subtitle").textContent =
+  `Profile “${meta.profile}”, started ${meta.started_at}. Each point is the median of ${meta.reps} measured runs ` +
+  `(after ${meta.warmup} warm-up${meta.warmup === 1 ? "" : "s"}) per implementation, with run order shuffled every round.`;
+document.getElementById("global-legend").replaceWith(legend("line"));
+
+if (meta.warnings.length) {
+  const box = el("div", { class: "warnings", role: "note" });
+  box.append(el("h2", {}, `⚠ Warning${meta.warnings.length > 1 ? "s" : ""}: results may be noisy`));
+  const ul = el("ul");
+  for (const w of meta.warnings) ul.append(el("li", {}, w));
+  box.append(ul);
+  document.getElementById("warnings").append(box);
+}
+
+// Overview table
+(() => {
+  const table = el("table");
+  const head = el("tr");
+  for (const h of ["Test", "Threads", ...IMPLS, "Unit"]) head.append(el("th", {}, h));
+  table.append(el("thead"));
+  table.tHead.append(head);
+  const body = el("tbody");
+  for (const sec of DATA.sections) {
+    const lowerBetter = sec.workload === "idle";
+    const value = p => lowerBetter ? p.bytes_per_task : p.ops_median;
+    const fmt = lowerBetter ? fmtBytes : fmtSI;
+    for (const z of sec.sizes) {
+      const t = Math.max(...threadsOf(z.points));
+      const vals = IMPLS.map(impl => { const p = findPoint(z.points, impl, t); return p && p.status === "ok" ? value(p) : null; });
+      const present = vals.filter(v => v != null);
+      const best = present.length > 1 ? (lowerBetter ? Math.min : Math.max)(...present) : null;
+      const tr = el("tr");
+      const name = el("td");
+      const link = el("a", { href: `#${sec.workload}` }, sec.title);
+      link.style.color = "inherit";
+      name.append(link, el("span", { class: "muted" }, ` · ${fmtSI(z.size)}`));
+      tr.append(name, el("td", {}, String(t)));
+      IMPLS.forEach((impl, i) => {
+        const td = el("td");
+        if (vals[i] == null) {
+          const p = findPoint(z.points, impl, t);
+          td.append(el("span", { class: "muted" }, p ? p.status : "–"));
+        } else if (vals[i] === best) {
+          td.append(el("strong", {}, fmt(vals[i])));
+        } else {
+          td.textContent = fmt(vals[i]);
+        }
+        tr.append(td);
+      });
+      const unit = el("td");
+      unit.append(el("span", { class: "muted" }, lowerBetter ? `${sec.unit} (lower is better)` : sec.unit));
+      tr.append(unit);
+      body.append(tr);
+    }
+  }
+  table.append(body);
+  document.getElementById("overview").append(table);
+})();
+
+// Sections
+const toc = document.getElementById("toc");
+const root = document.getElementById("sections");
+for (const sec of DATA.sections) {
+  toc.append(el("a", { href: `#${sec.workload}` }, sec.title));
+  const section = el("section", { id: sec.workload });
+  const h2 = el("h2", {}, sec.title);
+  h2.append(el("code", {}, sec.workload));
+  section.append(h2, el("p", { class: "section-blurb" }, sec.blurb));
+  const grid = el("div", { class: "grid" });
+  section.append(grid);
+  root.append(section);
+
+  if (sec.workload === "idle") {
+    const max = Math.max(0, ...sec.sizes.flatMap(z => z.points.filter(p => p.status === "ok").map(p => p.bytes_per_task)));
+    for (const z of sec.sizes) {
+      const c = card(grid, `${z.size.toLocaleString("en-US")} idle tasks`, "Resident memory added per task · lower is better · same scale across sizes", "rect", implsIn(z.points));
+      barChart(c, {
+        points: z.points, max, fmt: fmtBytes, value: p => p.bytes_per_task,
+        label: `Memory per idle task with ${z.size} tasks`,
+        detail: p => `${pct(p.cv_pct)} across ${p.runs} runs`,
+      });
+      missingNote(c, z.points);
+      tableView(c, z.points, p => `${fmtBytes(p.bytes_per_task)} ${pct(p.cv_pct)}`);
+    }
+    continue;
+  }
+
+  for (const z of sec.sizes) {
+    const c = card(grid, `Throughput · ${z.size.toLocaleString("en-US")} ops`, `${sec.unit} · higher is better · faint bar = min to max across runs`, "line", implsIn(z.points));
+    lineChart(c, {
+      points: z.points, whisker: true, fmt: fmtSI, value: p => p.ops_median,
+      label: `${sec.title} throughput by thread count`,
+      detail: p => `${pct(p.cv_pct)}${noisy(p) ? " ⚠ noisy" : ""} · range ${fmtSI(p.ops_min)}–${fmtSI(p.ops_max)} · ${p.runs} runs`,
+    });
+    missingNote(c, z.points);
+    tableView(c, z.points, p => `${fmtSI(p.ops_median)} ${pct(p.cv_pct)}${noisy(p) ? " ⚠" : ""}`);
+
+    if (sec.workload === "pingpong") {
+      const every = meta.params?.pingpong?.["sample-every"] ?? 16;
+      for (const [key, label] of [["lat_p50_ns", "p50"], ["lat_p99_ns", "p99"]]) {
+        const lc = card(grid, `Round-trip latency ${label}`, `Every ${every}th round trip sampled · lower is better`, "line", implsIn(z.points));
+        lineChart(lc, {
+          points: z.points, whisker: false, fmt: fmtNs, value: p => p[key],
+          label: `Ping-pong ${label} latency by thread count`,
+          detail: p => `p50 ${fmtNs(p.lat_p50_ns)} · p99 ${fmtNs(p.lat_p99_ns)} · p99.9 ${fmtNs(p.lat_p999_ns)}`,
+        });
+        tableView(lc, z.points, p => key === "lat_p50_ns" ? fmtNs(p.lat_p50_ns) : `${fmtNs(p.lat_p99_ns)} (p99.9 ${fmtNs(p.lat_p999_ns)})`);
+      }
+    }
+  }
+}
+
+// Machine and method
+(() => {
+  const dl = document.getElementById("machine");
+  const crates = Object.entries(meta.crates || {}).map(([k, v]) => `${k} ${v}`).join(", ");
+  const rows = [
+    ["CPU", `${meta.cpu_model ?? "unknown"} (${meta.logical_cpus} logical CPUs)`],
+    ["Governor", `${meta.governors.join(", ") || "unknown"}${meta.energy_performance_preference.length ? ` · EPP ${meta.energy_performance_preference.join(", ")}` : ""}`],
+    ["Pinning order", meta.cpu_order.join(", ")],
+    ["Kernel", meta.kernel],
+    ["Memory", `${Math.round(meta.mem_total_kb / 1024).toLocaleString("en-US")} MiB total, ${Math.round(meta.mem_available_kb / 1024).toLocaleString("en-US")} MiB free at start`],
+    ["Load at start", String(meta.load_avg_1m)],
+    ["Rust", meta.rustc ?? "unknown"],
+    ["Go", meta.go ?? "unknown"],
+    ["Crates", crates || "unknown"],
+    ["Shuffle seed", String(meta.seed)],
+  ];
+  for (const [k, v] of rows) dl.append(el("dt", {}, k), el("dd", {}, v));
+
+  const notes = [
+    "Every run is a fresh process pinned with taskset to exactly N logical CPUs, one per physical core before any SMT sibling. Tokio worker_threads, Crossbeam pool size and GOMAXPROCS are all set to N.",
+    "Each result is checked: a checksum must match the expected value (or, for the CPU test, match the other implementations) or the run is rejected.",
+    "Tokio's own mpsc channel has one receiver, so the many-receivers test uses the async-channel crate.",
+    "Every implementation uses the same channel capacity in a test: 1024 for the channel tests, 1 for their capacity-1 versions and for ping-pong (Tokio channels cannot have zero capacity).",
+    "tokio-tuned is a separate program (rust/tokio-tuned-bench): mimalloc, kanal channels, batched receives, spawning without JoinHandles and parking_lot::Mutex, each kept only where screening showed a gain.",
+    "Crossbeam has no lightweight tasks: spawn and idle tests use one OS thread per task and are skipped above 20,000 threads.",
+    "Idle memory is resident memory (VmRSS) added after tasks park; kernel thread structures are not counted, which flatters OS threads.",
+    "Go numbers include its garbage collector; the CPU test also reflects each compiler's code generation, not only the scheduler.",
+  ];
+  const ul = document.getElementById("method");
+  for (const n of notes) ul.append(el("li", {}, n));
+  for (const [v, help] of Object.entries(meta.variant_help || {})) ul.append(el("li", {}, `Tokio variant “${v}”: ${help}.`));
+})();
+</script>
+</body>
+</html>
