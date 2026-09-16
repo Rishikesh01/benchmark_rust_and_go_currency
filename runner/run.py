@@ -30,7 +30,28 @@ BINARIES = {
     "tokio": ROOT / "rust/target/release/tokio-bench",
     "crossbeam": ROOT / "rust/target/release/crossbeam-bench",
     "go": ROOT / "go/bin/gobench",
+    "tokio-tuned": ROOT / "rust/target/release/tokio-tuned-bench",
 }
+DEFAULT_IMPLS = ["tokio", "crossbeam", "go"]
+
+# Screening builds for single Tokio tweaks, used as `--impls tokio+batch,tokio+mimalloc+kanal,...`.
+# They run rust/tokio-variants-bench (separate from tokio-bench and tokio-tuned-bench), and must
+# match VARIANTS in its lib.rs. None = every workload.
+TOKIO_VARIANTS_BINARY = ROOT / "rust/target/release/tokio-variants-bench"
+TOKIO_VARIANTS_MIMALLOC_BINARY = ROOT / "rust/target/release/tokio-variants-bench-mimalloc"
+TOKIO_VARIANTS = {
+    "mimalloc": (None, "mimalloc global allocator"),
+    "batch": ({"spsc", "mpmc", "select"}, "receive up to 256 queued messages per wake-up"),
+    "unconstrained": ({"spsc", "select", "pingpong", "mutex"}, "tasks opt out of Tokio's co-operative yield budget"),
+    "kanal": ({"spsc", "mpmc", "pingpong"}, "kanal async channels instead of tokio/async-channel"),
+    "flume": ({"spsc", "mpmc", "pingpong"}, "flume async channels instead of tokio/async-channel"),
+    "join": ({"spsc", "pingpong"}, "both sides as futures in one task via join! (no parallelism)"),
+    "no-handles": ({"spawn"}, "no JoinHandles; tasks write results into a shared slice, like the Go version"),
+    "biased": ({"select"}, "select! polls branches in a fixed order instead of randomly"),
+    "std-mutex": ({"mutex"}, "std::sync::Mutex, never held across .await"),
+    "parking-lot": ({"mutex"}, "parking_lot::Mutex, never held across .await"),
+}
+
 U64 = 1 << 64
 
 # Parameters passed identically to every implementation.
@@ -91,7 +112,7 @@ def main() -> None:
     args = parse_args()
     profile = PROFILES[args.profile]
     workloads = pick("workload", args.workloads, list(WORKLOAD_PARAMS))
-    impls = pick("impl", args.impls, list(BINARIES))
+    impls = pick_impls(args.impls)
     threads_list = [int(t) for t in args.threads.split(",")] if args.threads else profile["threads"]
     warmup = profile["warmup"] if args.warmup is None else args.warmup
     reps = profile["reps"] if args.reps is None else args.reps
@@ -104,8 +125,10 @@ def main() -> None:
     if not args.no_build:
         build()
     for impl in impls:
-        if not BINARIES[impl].exists():
-            sys.exit(f"missing binary {BINARIES[impl]} (run without --no-build)")
+        for workload in workloads:
+            resolved = resolve_impl(impl, workload)
+            if resolved and not resolved[0].exists():
+                sys.exit(f"missing binary {resolved[0]} (run without --no-build)")
 
     out = Path(args.out) if args.out else ROOT / "results" / f"{args.profile}-{datetime.now():%Y%m%d-%H%M%S}"
     out.mkdir(parents=True, exist_ok=False)
@@ -130,13 +153,19 @@ def main() -> None:
             print(f"[{n:>2}/{len(configs)}] {workload} size={size:,} threads={threads} cpus={fmt_cpus(pinned)} ", end="", flush=True)
             if workload == "idle" and size * IDLE_BYTES_PER_TASK_ESTIMATE > mem_available * 0.8:
                 print("-> skipped: not enough free memory")
-                for impl in impls:
+                for impl in applicable(impls, workload):
                     rec = base_record(impl, workload, size, threads, pinned)
                     rec.update(status="error", reason="runner: not enough free memory", phase="measure", valid=None)
                     raw.write(json.dumps(rec) + "\n")
                 continue
-            results = run_config(workload, size, threads, pinned, impls, warmup, reps, rng, raw, args.timeout, consensus)
-            print("\n       " + "   ".join(progress_cell(impl, results[impl], workload) for impl in impls))
+            here = applicable(impls, workload)
+            if not here:
+                print("-> no implementation applies")
+                continue
+            results = run_config(workload, size, threads, pinned, here, warmup, reps, rng, raw, args.timeout, consensus)
+            cells = [progress_cell(impl, results[impl], workload) for impl in here]
+            for i in range(0, len(cells), 3):
+                print(("\n       " if i == 0 else "       ") + "   ".join(cells[i:i + 3]))
 
     report.build(out)
     print(f"\nraw results : {out / 'raw.jsonl'}")
@@ -149,7 +178,8 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--profile", choices=PROFILES, default="smoke")
     p.add_argument("--workloads", help=f"comma list from: {','.join(WORKLOAD_PARAMS)}")
-    p.add_argument("--impls", help=f"comma list from: {','.join(BINARIES)}")
+    p.add_argument("--impls", help=f"comma list from {','.join(BINARIES)} (default {','.join(DEFAULT_IMPLS)}); "
+                   f"screening builds as tokio+VARIANT[+VARIANT], variants: {','.join(TOKIO_VARIANTS)}")
     p.add_argument("--threads", help="comma list of thread counts, e.g. 1,2,6,12")
     p.add_argument("--warmup", type=int, help="warm-up runs per implementation (overrides profile)")
     p.add_argument("--reps", type=int, help="measured runs per implementation (overrides profile)")
@@ -168,6 +198,39 @@ def pick(kind: str, requested: str | None, available: list[str]) -> list[str]:
     if unknown:
         sys.exit(f"unknown {kind}: {', '.join(unknown)} (choose from {', '.join(available)})")
     return chosen
+
+
+def pick_impls(requested: str | None) -> list[str]:
+    impls = [x.strip() for x in requested.split(",") if x.strip()] if requested else list(DEFAULT_IMPLS)
+    for impl in impls:
+        base, *variants = impl.split("+")
+        if base not in BINARIES:
+            sys.exit(f"unknown impl {impl!r} (choose from {', '.join(BINARIES)})")
+        if variants and base != "tokio":
+            sys.exit(f"only tokio has variants: {impl!r}")
+        for v in variants:
+            if v not in TOKIO_VARIANTS:
+                sys.exit(f"unknown tokio variant {v!r} (choose from {', '.join(TOKIO_VARIANTS)})")
+    if len(impls) > 8:
+        sys.exit("at most 8 implementations per run (the chart palette has 8 colors)")
+    return impls
+
+
+def resolve_impl(impl: str, workload: str) -> tuple[Path, list[str]] | None:
+    """Binary and --variant list for an impl spec, or None if it doesn't apply to this workload."""
+    base, *variants = impl.split("+")
+    if not variants:
+        return BINARIES[base], []
+    for v in variants:
+        workloads = TOKIO_VARIANTS[v][0]
+        if workloads is not None and workload not in workloads:
+            return None
+    binary = TOKIO_VARIANTS_MIMALLOC_BINARY if "mimalloc" in variants else TOKIO_VARIANTS_BINARY
+    return binary, [v for v in variants if v != "mimalloc"]
+
+
+def applicable(impls: list[str], workload: str) -> list[str]:
+    return [impl for impl in impls if resolve_impl(impl, workload) is not None]
 
 
 def build() -> None:
@@ -233,14 +296,19 @@ def base_record(impl, workload, size, threads, cpus) -> dict:
 
 
 def run_one(impl, workload, size, threads, cpus, timeout) -> dict:
-    cmd = [str(BINARIES[impl]), "--workload", workload, "--threads", str(threads), "--size", str(size)]
+    binary, variants = resolve_impl(impl, workload)
+    cmd = [str(binary), "--workload", workload, "--threads", str(threads), "--size", str(size)]
     for key, value in WORKLOAD_PARAMS[workload].items():
         cmd += [f"--{key}", str(value)]
+    if variants:
+        cmd += ["--variant", ",".join(variants)]
     if shutil.which("taskset"):
         cmd = ["taskset", "-c", ",".join(map(str, cpus))] + cmd
     env = {k: v for k, v in os.environ.items() if k != "GOMAXPROCS"}
 
     rec = base_record(impl, workload, size, threads, cpus)
+    rec["binary"] = binary.name
+    rec["variants"] = variants
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
     except subprocess.TimeoutExpired:
@@ -360,8 +428,14 @@ def collect_meta(profile_name, workloads, impls, threads_list, warmup, reps, see
         "rustc": tool_version(["rustc", "--version"]),
         "go": tool_version(["go", "version"]),
         "crates": crates,
+        "variant_help": variant_help(impls),
         "warnings": warnings,
     }
+
+
+def variant_help(impls: list[str]) -> dict[str, str]:
+    used = {v for impl in impls for v in impl.split("+")[1:]}
+    return {v: TOKIO_VARIANTS[v][1] for v in TOKIO_VARIANTS if v in used}
 
 
 def read_text(path: Path) -> str | None:

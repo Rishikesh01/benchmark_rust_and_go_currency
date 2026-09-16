@@ -12,7 +12,6 @@ import statistics
 import sys
 from pathlib import Path
 
-IMPL_ORDER = ["tokio", "crossbeam", "go"]
 CV_WARN_PCT = 5.0
 
 WORKLOAD_ORDER = ["spsc", "mpmc", "pingpong", "spawn", "cpu", "select", "mutex", "idle"]
@@ -32,13 +31,13 @@ def build(out_dir: Path) -> None:
     out_dir = Path(out_dir)
     meta = json.loads((out_dir / "meta.json").read_text())
     rows = [json.loads(l) for l in (out_dir / "raw.jsonl").read_text().splitlines() if l.strip()]
-    summary = summarise(rows)
+    summary = summarise(rows, meta["impls"])
     write_csv(out_dir / "summary.csv", summary)
     (out_dir / "summary.md").write_text(render_markdown(meta, summary))
     (out_dir / "report.html").write_text(render_html(meta, summary))
 
 
-def summarise(rows: list[dict]) -> list[dict]:
+def summarise(rows: list[dict], impl_order: list[str]) -> list[dict]:
     groups: dict[tuple, list[dict]] = {}
     for r in rows:
         groups.setdefault((r["workload"], r["size"], r["threads"], r["impl"]), []).append(r)
@@ -53,6 +52,7 @@ def summarise(rows: list[dict]) -> list[dict]:
             "threads": threads,
             "impl": impl,
             "params": recs[0].get("params", {}),
+            "variants": recs[0].get("variants", []),
             "runs": len(ok),
             "status": "ok" if ok else ("invalid" if bad and bad["status"] == "ok" else (bad["status"] if bad else "no data")),
             "reason": bad.get("reason") if bad else None,
@@ -76,7 +76,7 @@ def summarise(rows: list[dict]) -> list[dict]:
         summary.append(s)
 
     def sort_key(s):
-        impl_rank = IMPL_ORDER.index(s["impl"]) if s["impl"] in IMPL_ORDER else len(IMPL_ORDER)
+        impl_rank = impl_order.index(s["impl"]) if s["impl"] in impl_order else len(impl_order)
         return (workload_rank(s["workload"]), s["size"], s["threads"], impl_rank)
 
     return sorted(summary, key=sort_key)
@@ -150,9 +150,10 @@ def write_csv(path: Path, summary: list[dict]) -> None:
 # ---------------------------------------------------------------- markdown
 
 def render_markdown(meta: dict, summary: list[dict]) -> str:
-    impls = [i for i in IMPL_ORDER if i in meta["impls"]]
-    out = [f"# Concurrency benchmark: {' vs '.join(impls)}", ""]
+    out = [f"# Concurrency benchmark: {' vs '.join(meta['impls'])}", ""]
     out += machine_lines(meta)
+    if meta.get("variant_help"):
+        out += ["", "**Tokio variants**", ""] + [f"- `{v}`: {help}" for v, help in meta["variant_help"].items()]
     if meta["warnings"]:
         out += ["", "**Warnings**", ""] + [f"- ⚠ {w}" for w in meta["warnings"]]
     out += [
@@ -165,6 +166,8 @@ def render_markdown(meta: dict, summary: list[dict]) -> str:
     for workload, by_size in grouped(summary).items():
         params = next(iter(next(iter(by_size.values())).values()))[0]["params"]
         title, blurb, unit = describe(workload, params)
+        present = {s["impl"] for by_threads in by_size.values() for rows in by_threads.values() for s in rows}
+        impls = [i for i in meta["impls"] if i in present]
         out += ["", f"## {title} (`{workload}`)", "", blurb]
         for size, by_threads in by_size.items():
             if workload == "idle":
@@ -232,7 +235,6 @@ def machine_lines(meta: dict) -> list[str]:
 # ---------------------------------------------------------------- html
 
 def render_html(meta: dict, summary: list[dict]) -> str:
-    impls = [i for i in IMPL_ORDER if i in meta["impls"]]
     sections = []
     for workload, by_size in grouped(summary).items():
         params = next(iter(next(iter(by_size.values())).values()))[0]["params"]
@@ -245,7 +247,8 @@ def render_html(meta: dict, summary: list[dict]) -> str:
             "sizes": [
                 {"size": size, "points": [
                     {k: s.get(k) for k in ("threads", "impl", "status", "reason", "runs", "ops_median", "ops_min",
-                                            "ops_max", "cv_pct", "lat_p50_ns", "lat_p99_ns", "lat_p999_ns", "bytes_per_task")}
+                                            "ops_max", "cv_pct", "lat_p50_ns", "lat_p99_ns", "lat_p999_ns", "bytes_per_task",
+                                            "variants")}
                     for rows in by_threads.values() for s in rows
                 ]}
                 for size, by_threads in by_size.items()
@@ -253,10 +256,9 @@ def render_html(meta: dict, summary: list[dict]) -> str:
         })
     data = {
         "meta": meta,
-        "impls": impls,
+        "impls": meta["impls"],
         "cvWarn": CV_WARN_PCT,
         "sections": sections,
-        "machine": machine_lines(meta),
     }
     payload = json.dumps(data).replace("</", "<\\/")
     return HTML_TEMPLATE.replace("/*__DATA__*/null", payload)

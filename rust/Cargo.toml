@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["common", "tokio-bench", "crossbeam-bench"]
+members = ["common", "tokio-bench", "tokio-tuned-bench", "tokio-variants-bench", "crossbeam-bench"]
 
 [workspace.package]
 edition = "2021"

@@ -22,6 +22,8 @@ pub struct Args {
     pub rounds: u32,
     pub sample_every: u64,
     pub settle_ms: u64,
+    /// Implementation-specific tweaks (`--variant a,b`); empty means defaults.
+    pub variants: Vec<String>,
 }
 
 impl Args {
@@ -38,6 +40,7 @@ impl Args {
             rounds: 32,
             sample_every: 16,
             settle_ms: 200,
+            variants: Vec::new(),
         };
         let raw: Vec<String> = std::env::args().skip(1).collect();
         let mut i = 0;
@@ -64,6 +67,7 @@ impl Args {
                 "rounds" => a.rounds = num(&key, &value),
                 "sample-every" => a.sample_every = num(&key, &value),
                 "settle-ms" => a.settle_ms = num(&key, &value),
+                "variant" => a.variants = value.split(',').filter(|v| !v.is_empty()).map(str::to_string).collect(),
                 _ => fail(&format!("unknown flag --{key}")),
             }
         }
@@ -75,6 +79,10 @@ impl Args {
         }
         a.sample_every = a.sample_every.max(1);
         a
+    }
+
+    pub fn has(&self, variant: &str) -> bool {
+        self.variants.iter().any(|v| v == variant)
     }
 }
 
@@ -90,7 +98,7 @@ pub fn fail(msg: &str) -> ! {
 /// One benchmark result. Serialised as a single JSON line on stdout.
 #[derive(Default)]
 pub struct Report {
-    pub implementation: &'static str,
+    pub implementation: String,
     pub workload: String,
     pub status: &'static str,
     pub reason: Option<String>,
@@ -107,9 +115,9 @@ pub struct Report {
 }
 
 impl Report {
-    pub fn ok(implementation: &'static str, a: &Args, ops: u64, wall: Duration, checksum: u64) -> Report {
+    pub fn ok(implementation: &str, a: &Args, ops: u64, wall: Duration, checksum: u64) -> Report {
         Report {
-            implementation,
+            implementation: implementation.to_string(),
             workload: a.workload.clone(),
             status: "ok",
             threads: a.threads,
@@ -121,9 +129,9 @@ impl Report {
         }
     }
 
-    pub fn skipped(implementation: &'static str, a: &Args, reason: String) -> Report {
+    pub fn skipped(implementation: &str, a: &Args, reason: String) -> Report {
         Report {
-            implementation,
+            implementation: implementation.to_string(),
             workload: a.workload.clone(),
             status: "skipped",
             reason: Some(reason),
@@ -159,7 +167,7 @@ impl Report {
             "{{\"impl\":{},\"workload\":{},\"status\":{},\"reason\":{},\"threads\":{},\"size\":{},\"ops\":{},\
              \"wall_ns\":{},\"ops_per_sec\":{:.1},\"checksum\":{},\"lat_p50_ns\":{},\"lat_p99_ns\":{},\
              \"lat_p999_ns\":{},\"peak_rss_kb\":{},\"rss_delta_kb\":{},\"bytes_per_task\":{}}}",
-            s(self.implementation),
+            s(&self.implementation),
             s(&self.workload),
             s(self.status),
             self.reason.as_deref().map_or("null".to_string(), s),

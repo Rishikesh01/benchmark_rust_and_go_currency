@@ -1,0 +1,11 @@
+[package]
+name = "tokio-tuned-bench"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+common = { path = "../common" }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
+kanal = "0.1.1"
+mimalloc = "0.1.52"
+parking_lot = "0.12.5"
