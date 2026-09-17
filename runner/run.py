@@ -16,10 +16,12 @@ import os
 import platform
 import random
 import re
+import resource
 import shutil
 import statistics
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -61,7 +63,8 @@ WORKLOAD_PARAMS = {
     "spsc-cap1": {"capacity": 1},
     "mpmc": {"capacity": 1024, "producers": 4, "consumers": 4},
     "mpmc-cap1": {"capacity": 1, "producers": 4, "consumers": 4},
-    "pingpong": {"sample-every": 16},
+    # A prime stride, so samples can't line up with Tokio's co-op budget of 128 polls.
+    "pingpong": {"sample-every": 17},
     "spawn": {},
     "cpu": {"tasks": 256, "rounds": 32},
     "select": {"capacity": 1024},
@@ -124,8 +127,23 @@ PROFILES = {
 # Memory per idle task barely depends on worker count: run it at the largest thread count only.
 MAX_THREADS_ONLY = {"idle"}
 
-# Conservative per-task memory estimate used to refuse idle sizes that would exhaust RAM.
-IDLE_BYTES_PER_TASK_ESTIMATE = 3_000
+# Conservative resident memory per idle task, used to skip idle sizes that would exhaust RAM.
+IDLE_BYTES_PER_TASK_ESTIMATE = {"go": 3_000, "crossbeam": 12_000}
+IDLE_BYTES_PER_TASK_DEFAULT = 600  # Tokio builds
+
+
+# Before each config, wait up to QUIET_WAIT_S for other processes to use under QUIET_CPU_PCT of all CPUs.
+# Configs that start noisier than that are listed in the report's notes.
+QUIET_CPU_PCT = 10.0
+QUIET_WAIT_S = 10.0
+
+# Each run gets an environment variable of random length, so stack/environment layout effects
+# average out instead of favouring one implementation (Mytkowicz et al., "Producing wrong data").
+ENV_PAD_MAX = 4096
+
+
+def idle_bytes_estimate(impl: str) -> int:
+    return IDLE_BYTES_PER_TASK_ESTIMATE.get(impl.split("+")[0], IDLE_BYTES_PER_TASK_DEFAULT)
 
 
 def main() -> None:
@@ -134,11 +152,13 @@ def main() -> None:
     workloads = pick("workload", args.workloads, list(WORKLOAD_PARAMS))
     impls = pick_impls(args.impls)
     threads_list = [int(t) for t in args.threads.split(",")] if args.threads else profile["threads"]
+    if len(set(threads_list)) != len(threads_list) or min(threads_list) < 1:
+        sys.exit(f"thread counts must be distinct and >= 1: {threads_list}")
     warmup = profile["warmup"] if args.warmup is None else args.warmup
     reps = profile["reps"] if args.reps is None else args.reps
     seed = args.seed if args.seed is not None else random.randrange(1 << 32)
 
-    cpus = cpu_order()
+    cpus, physical_cores = cpu_order()
     if max(threads_list) > len(cpus):
         sys.exit(f"asked for {max(threads_list)} threads but only {len(cpus)} CPUs are available")
 
@@ -153,7 +173,7 @@ def main() -> None:
     out = Path(args.out) if args.out else ROOT / "results" / f"{args.profile}-{datetime.now():%Y%m%d-%H%M%S}"
     out.mkdir(parents=True, exist_ok=False)
 
-    meta = collect_meta(args.profile, workloads, impls, threads_list, warmup, reps, seed, cpus, profile)
+    meta = collect_meta(args.profile, workloads, impls, threads_list, warmup, reps, seed, cpus, physical_cores, profile)
     (out / "meta.json").write_text(json.dumps(meta, indent=2))
     for w in meta["warnings"]:
         print(f"WARNING: {w}", file=sys.stderr)
@@ -166,23 +186,28 @@ def main() -> None:
 
     rng = random.Random(seed)
     consensus: dict = {}
-    mem_available = meminfo_kb("MemAvailable") * 1024
     with open(out / "raw.jsonl", "a") as raw:
         for n, (workload, size, threads) in enumerate(configs, 1):
             pinned = cpus[:threads]
             print(f"[{n:>2}/{len(configs)}] {workload} size={size:,} threads={threads} cpus={fmt_cpus(pinned)} ", end="", flush=True)
-            if workload == "idle" and size * IDLE_BYTES_PER_TASK_ESTIMATE > mem_available * 0.8:
-                print("-> skipped: not enough free memory")
-                for impl in applicable(impls, workload):
+            here = applicable(impls, workload)
+            if workload == "idle":
+                mem_available = meminfo_kb("MemAvailable") * 1024
+                too_big = [i for i in here if size * idle_bytes_estimate(i) > mem_available * 0.8]
+                for impl in too_big:
                     rec = base_record(impl, workload, size, threads, pinned)
                     rec.update(status="error", reason="runner: not enough free memory", phase="measure", valid=None)
                     raw.write(json.dumps(rec) + "\n")
-                continue
-            here = applicable(impls, workload)
+                if too_big:
+                    print(f"(not enough free memory for {', '.join(too_big)}) ", end="")
+                here = [i for i in here if i not in too_big]
             if not here:
                 print("-> no implementation applies")
                 continue
-            results = run_config(workload, size, threads, pinned, here, warmup, reps, rng, raw, args.timeout, consensus)
+            conditions = wait_for_quiet()
+            if conditions["quiet_wait_s"] or (conditions["background_cpu_pct"] or 0) > QUIET_CPU_PCT:
+                print(f"(background CPU {conditions['background_cpu_pct']}%, waited {conditions['quiet_wait_s']}s) ", end="", flush=True)
+            results = run_config(workload, size, threads, pinned, here, warmup, reps, rng, raw, args.timeout, consensus, conditions)
             cells = [progress_cell(impl, results[impl], workload) for impl in here]
             for i in range(0, len(cells), 3):
                 print(("\n       " if i == 0 else "       ") + "   ".join(cells[i:i + 3]))
@@ -222,6 +247,8 @@ def pick(kind: str, requested: str | None, available: list[str]) -> list[str]:
 
 def pick_impls(requested: str | None) -> list[str]:
     impls = [x.strip() for x in requested.split(",") if x.strip()] if requested else list(DEFAULT_IMPLS)
+    if len(set(impls)) != len(impls):
+        sys.exit(f"duplicate implementations in --impls: {impls}")
     for impl in impls:
         base, *variants = impl.split("+")
         if base not in BINARIES:
@@ -260,13 +287,13 @@ def build() -> None:
     subprocess.run(["go", "build", "-o", "bin/gobench", "."], cwd=ROOT / "go", check=True)
 
 
-def cpu_order() -> list[int]:
-    """Usable logical CPUs, ordered so the first N cover N distinct physical cores."""
+def cpu_order() -> tuple[list[int], int | None]:
+    """Usable logical CPUs, ordered so the first N cover N distinct physical cores, and the physical core count."""
     allowed = os.sched_getaffinity(0)
     try:
         out = subprocess.run(["lscpu", "-p=CPU,CORE,SOCKET"], capture_output=True, text=True, check=True).stdout
     except (OSError, subprocess.CalledProcessError):
-        return sorted(allowed)
+        return sorted(allowed), None
     rank: dict[tuple[str, str], int] = {}
     keyed = []
     for line in out.splitlines():
@@ -278,10 +305,49 @@ def cpu_order() -> list[int]:
         r = rank.get((socket, core), 0)
         rank[(socket, core)] = r + 1
         keyed.append((r, int(socket or 0), int(core or 0), int(cpu)))
-    return [cpu for *_, cpu in sorted(keyed)]
+    return [cpu for *_, cpu in sorted(keyed)], len(rank)
 
 
-def run_config(workload, size, threads, cpus, impls, warmup, reps, rng, raw, timeout, consensus) -> dict[str, list[dict]]:
+def cpu_busy_pct(interval: float = 0.5) -> float | None:
+    """Share of all CPU time that was busy (not idle or iowait) over `interval`, from /proc/stat."""
+    def snapshot() -> tuple[int, int]:
+        fields = [int(x) for x in (read_text(Path("/proc/stat")) or "").splitlines()[0].split()[1:9]]
+        return sum(fields), fields[3] + fields[4]  # user..steal (guest is counted in user); idle + iowait
+
+    try:
+        total0, idle0 = snapshot()
+        time.sleep(interval)
+        total1, idle1 = snapshot()
+    except (IndexError, ValueError):
+        return None
+    total = total1 - total0
+    return 100.0 * (total - (idle1 - idle0)) / total if total > 0 else None
+
+
+def cpu_temp_c() -> float | None:
+    for hwmon in Path("/sys/class/hwmon").glob("hwmon*"):
+        if read_text(hwmon / "name") in ("k10temp", "zenpower", "coretemp", "cpu_thermal"):
+            milli = read_text(hwmon / "temp1_input")
+            return round(int(milli) / 1000, 1) if milli and milli.isdigit() else None
+    return None
+
+
+def wait_for_quiet() -> dict:
+    """Wait briefly for other processes to go quiet; return the conditions this config starts under."""
+    started = time.monotonic()
+    busy = cpu_busy_pct()
+    while busy is not None and busy > QUIET_CPU_PCT and time.monotonic() - started < QUIET_WAIT_S:
+        time.sleep(1.0)
+        busy = cpu_busy_pct()
+    waited = time.monotonic() - started
+    return {
+        "background_cpu_pct": None if busy is None else round(busy, 1),
+        "quiet_wait_s": round(waited, 1) if waited > 1.0 else 0.0,
+        "cpu_temp_c": cpu_temp_c(),
+    }
+
+
+def run_config(workload, size, threads, cpus, impls, warmup, reps, rng, raw, timeout, consensus, conditions) -> dict[str, list[dict]]:
     active = list(impls)
     measured: dict[str, list[dict]] = {impl: [] for impl in impls}
     for round_no in range(warmup + reps):
@@ -289,9 +355,10 @@ def run_config(workload, size, threads, cpus, impls, warmup, reps, rng, raw, tim
         order = active[:]
         rng.shuffle(order)
         for impl in order:
-            rec = run_one(impl, workload, size, threads, cpus, timeout)
+            rec = run_one(impl, workload, size, threads, cpus, timeout, rng.randrange(ENV_PAD_MAX + 1))
             rec["phase"] = phase
             rec["round"] = round_no
+            rec.update(conditions)
             verify(rec, consensus)
             raw.write(json.dumps(rec) + "\n")
             raw.flush()
@@ -316,7 +383,7 @@ def base_record(impl, workload, size, threads, cpus) -> dict:
     }
 
 
-def run_one(impl, workload, size, threads, cpus, timeout) -> dict:
+def run_one(impl, workload, size, threads, cpus, timeout, env_pad) -> dict:
     binary, variants = resolve_impl(impl, workload)
     cmd = [str(binary), "--workload", program_workload(workload), "--threads", str(threads), "--size", str(size)]
     for key, value in WORKLOAD_PARAMS[workload].items():
@@ -326,14 +393,23 @@ def run_one(impl, workload, size, threads, cpus, timeout) -> dict:
     if shutil.which("taskset"):
         cmd = ["taskset", "-c", ",".join(map(str, cpus))] + cmd
     env = {k: v for k, v in os.environ.items() if k != "GOMAXPROCS"}
+    env["BENCH_ENV_PAD"] = "x" * env_pad
 
     rec = base_record(impl, workload, size, threads, cpus)
     rec["binary"] = binary.name
     rec["variants"] = variants
+    rec["env_pad"] = env_pad
+    # CPU time of the whole child process (startup included). Runs are sequential, so the delta is this run.
+    before = resource.getrusage(resource.RUSAGE_CHILDREN)
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
     except subprocess.TimeoutExpired:
         return {**rec, "status": "error", "reason": f"timeout after {timeout}s"}
+    after = resource.getrusage(resource.RUSAGE_CHILDREN)
+    rec["cpu_user_s"] = round(after.ru_utime - before.ru_utime, 4)
+    rec["cpu_sys_s"] = round(after.ru_stime - before.ru_stime, 4)
+    rec["voluntary_ctx_switches"] = after.ru_nvcsw - before.ru_nvcsw
+    rec["involuntary_ctx_switches"] = after.ru_nivcsw - before.ru_nivcsw
     lines = [l for l in proc.stdout.splitlines() if l.strip()]
     if proc.returncode != 0 or not lines:
         tail = (proc.stderr.strip() or proc.stdout.strip())[-300:]
@@ -342,7 +418,45 @@ def run_one(impl, workload, size, threads, cpus, timeout) -> dict:
         result = json.loads(lines[-1])
     except json.JSONDecodeError:
         return {**rec, "status": "error", "reason": f"bad output: {lines[-1][:200]}"}
-    return {**result, **rec}
+    # The runner's fields overwrite the binary's below, so first make sure the binary ran what was asked.
+    reported = (result.get("workload"), result.get("threads"), result.get("size"))
+    if reported != (program_workload(workload), threads, size):
+        return {**rec, "status": "error", "reason": f"binary reported workload/threads/size {reported}"}
+    echoed = result.get("params") or {}
+    mismatched = {k: echoed.get(k) for k, v in WORKLOAD_PARAMS[workload].items() if echoed.get(k) != v}
+    if mismatched:
+        return {**rec, "status": "error", "reason": f"binary ran with different parameters: {mismatched}"}
+    # rec's "params" (what was requested) overwrites the binary's; keep what it reported alongside.
+    return {**result, "reported_params": echoed, **rec}
+
+
+def cpu_checksum(size: int, tasks: int, rounds: int) -> int | None:
+    """Wrapping sum of splitmix64 applied `rounds` times to 0..size-1, if numpy is available.
+
+    Chunking doesn't change a wrapping sum, so `tasks` is irrelevant here; it is kept for the cache key.
+    """
+    key = (size, tasks, rounds)
+    if key in _CPU_CHECKSUMS:
+        return _CPU_CHECKSUMS[key]
+    try:
+        import numpy as np
+    except ImportError:
+        return None
+    total = 0
+    with np.errstate(over="ignore"):
+        for lo in range(0, size, 1 << 20):
+            z = np.arange(lo, min(size, lo + (1 << 20)), dtype=np.uint64)
+            for _ in range(rounds):
+                z = z + np.uint64(0x9E3779B97F4A7C15)
+                z = (z ^ (z >> np.uint64(30))) * np.uint64(0xBF58476D1CE4E5B9)
+                z = (z ^ (z >> np.uint64(27))) * np.uint64(0x94D049BB133111EB)
+                z = z ^ (z >> np.uint64(31))
+            total = (total + int(z.sum(dtype=np.uint64))) % U64
+    _CPU_CHECKSUMS[key] = total
+    return total
+
+
+_CPU_CHECKSUMS: dict[tuple[int, int, int], int] = {}
 
 
 def expected_checksum(workload: str, size: int, params: dict) -> int | None:
@@ -362,7 +476,10 @@ def expected_checksum(workload: str, size: int, params: dict) -> int | None:
             return size // params["workers"] * params["workers"]
         case "idle":
             return size
-    return None  # cpu: no closed form, so implementations must agree with each other
+        case "cpu":
+            # No closed form; computed with numpy, or None to fall back to cross-implementation agreement.
+            return cpu_checksum(size, params["tasks"], params["rounds"])
+    return None
 
 
 def verify(rec: dict, consensus: dict) -> None:
@@ -397,7 +514,7 @@ def fmt_cpus(cpus: list[int]) -> str:
     return ",".join(map(str, cpus))
 
 
-def collect_meta(profile_name, workloads, impls, threads_list, warmup, reps, seed, cpus, profile) -> dict:
+def collect_meta(profile_name, workloads, impls, threads_list, warmup, reps, seed, cpus, physical_cores, profile) -> dict:
     warnings = []
     cpu_root = Path("/sys/devices/system/cpu")
     governors = sorted({read_text(p) for p in cpu_root.glob("cpu[0-9]*/cpufreq/scaling_governor")} - {None})
@@ -410,8 +527,14 @@ def collect_meta(profile_name, workloads, impls, threads_list, warmup, reps, see
 
     on_ac = None
     for supply in Path("/sys/class/power_supply").glob("*"):
-        if read_text(supply / "type") == "Mains":
+        kind = read_text(supply / "type")
+        if kind == "Mains":
             on_ac = read_text(supply / "online") == "1"
+        elif kind == "Battery" and supply.name.startswith("BAT") and on_ac is None:
+            # Some laptops expose no Mains supply; a discharging system battery means no charger.
+            status = read_text(supply / "status")
+            if status is not None:
+                on_ac = status != "Discharging"
     if on_ac is False:
         warnings.append("Running on battery; plug in the charger for stable CPU frequency.")
 
@@ -421,9 +544,17 @@ def collect_meta(profile_name, workloads, impls, threads_list, warmup, reps, see
 
     if not shutil.which("taskset"):
         warnings.append("taskset not found; runs are NOT pinned to a CPU subset, so thread counts are not comparable.")
+    if not shutil.which("lscpu"):
+        warnings.append("lscpu not found; CPUs are used in numeric order, which may pin two threads to one physical core.")
 
     lock = read_text(ROOT / "rust/Cargo.lock") or ""
-    crates = dict(re.findall(r'name = "(tokio|crossbeam|crossbeam-channel|crossbeam-deque|async-channel|parking_lot)"\nversion = "([^"]+)"', lock))
+    crate_names = "tokio|crossbeam|crossbeam-channel|crossbeam-deque|async-channel|parking_lot|kanal|flume|mimalloc"
+    crates = dict(re.findall(rf'name = "({crate_names})"\nversion = "([^"]+)"', lock))
+
+    commit = git_output(["rev-parse", "HEAD"])
+    dirty = bool(git_output(["status", "--porcelain", "--untracked-files=no"]))
+    if dirty:
+        warnings.append("Working tree has uncommitted changes; git_commit in meta.json does not fully describe the code.")
 
     return {
         "profile": profile_name,
@@ -437,6 +568,7 @@ def collect_meta(profile_name, workloads, impls, threads_list, warmup, reps, see
         "reps": reps,
         "seed": seed,
         "cpu_order": cpus,
+        "physical_cores": physical_cores,
         "cpu_model": lscpu_field("Model name"),
         "logical_cpus": len(cpus),
         "kernel": platform.release(),
@@ -444,11 +576,15 @@ def collect_meta(profile_name, workloads, impls, threads_list, warmup, reps, see
         "energy_performance_preference": epps,
         "on_ac_power": on_ac,
         "load_avg_1m": round(load1, 2),
+        "cpu_temp_c_at_start": cpu_temp_c(),
+        "quiet_cpu_pct": QUIET_CPU_PCT,
         "mem_total_kb": meminfo_kb("MemTotal"),
         "mem_available_kb": meminfo_kb("MemAvailable"),
         "rustc": tool_version(["rustc", "--version"]),
         "go": tool_version(["go", "version"]),
         "crates": crates,
+        "git_commit": commit,
+        "git_dirty": dirty,
         "variant_help": variant_help(impls),
         "warnings": warnings,
     }
@@ -457,6 +593,13 @@ def collect_meta(profile_name, workloads, impls, threads_list, warmup, reps, see
 def variant_help(impls: list[str]) -> dict[str, str]:
     used = {v for impl in impls for v in impl.split("+")[1:]}
     return {v: TOKIO_VARIANTS[v][1] for v in TOKIO_VARIANTS if v in used}
+
+
+def git_output(args: list[str]) -> str | None:
+    try:
+        return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
 
 
 def read_text(path: Path) -> str | None:

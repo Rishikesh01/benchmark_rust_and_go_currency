@@ -166,7 +166,7 @@ footer ul { padding-left: 18px; max-width: 80ch; }
   <div id="warnings"></div>
   <div class="card">
     <h3>At the highest thread count measured</h3>
-    <p class="card-sub">Median per implementation; bold is best in the row.</p>
+    <p class="card-sub">Median per implementation; bold marks a clear best (confidence intervals don't overlap).</p>
     <div class="table-wrap" id="overview"></div>
   </div>
   <nav class="toc" id="toc" aria-label="Tests"></nav>
@@ -184,9 +184,29 @@ footer ul { padding-left: 18px; max-width: 80ch; }
 const DATA = /*__DATA__*/null;
 
 // Color follows the implementation's position in the run, so it is identical in every chart.
-const IMPLS = DATA.impls;
-const color = impl => `var(--series-${IMPLS.indexOf(impl) + 1})`;
+const color = impl => `var(--series-${DATA.impls.indexOf(impl) + 1})`;
+
+// Display order and names mirror report.py: tokio-tuned and tokio+VARIANT sit right after tokio.
+function displayOrder(impls) {
+  const key = (impl, i) => {
+    const parent = impls.findIndex(p => p !== impl && (impl.startsWith(p + "-") || impl.startsWith(p + "+")));
+    return parent < 0 ? [i, 0, 0] : [parent, 1, i];
+  };
+  return impls.map((impl, i) => [key(impl, i), impl])
+    .sort(([a], [b]) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2])
+    .map(([, impl]) => impl);
+}
+const IMPLS = displayOrder(DATA.impls);
+const DISPLAY_NAMES = { tokio: "Tokio", "tokio-tuned": "Tuned Tokio", crossbeam: "Crossbeam", go: "Go" };
+const nameOf = impl => {
+  const [base, ...variants] = impl.split("+");
+  return (DISPLAY_NAMES[base] ?? base) + variants.map(v => ` + ${v}`).join("");
+};
 const implsIn = points => IMPLS.filter(impl => points.some(p => p.impl === impl));
+// "partial" cells had some failed runs; their median covers only the runs that succeeded.
+const shown = p => p != null && (p.status === "ok" || p.status === "partial");
+const runsText = p => `${p.runs}/${p.expected_runs ?? DATA.meta.reps} runs`;
+const partialMark = p => (p.status === "partial" ? ` (${runsText(p)})` : "");
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 function el(tag, attrs = {}, text) {
@@ -202,24 +222,40 @@ function sv(tag, attrs = {}, text) {
   return e;
 }
 
-// ---- number formatting (mirrors report.py)
-const sig = v => String(Number(v.toPrecision(3)));
-function fmtSI(v) {
-  if (v == null) return "–";
-  for (const [d, s] of [[1e9, "B"], [1e6, "M"], [1e3, "K"]]) if (Math.abs(v) >= d) return sig(v / d) + s;
-  return sig(v);
+// ---- number formatting (mirrors report.py). Values keep 3 significant digits with trailing zeros
+// (4.00M); compact = true drops them, for axis ticks and sizes (20M, 10K).
+function sig3(x, compact) {
+  x = Number(x.toPrecision(3));
+  if (x === 0) return "0";
+  if (compact) return String(x);
+  const a = Math.abs(x);
+  return x.toFixed(a >= 100 ? 0 : a >= 10 ? 1 : 2);
 }
-function fmtNs(v) {
+function fmtSI(v, compact = false) {
+  if (v == null) return "–";
+  v = Number(v.toPrecision(3));  // round first so 999.6K becomes 1.00M, not 1000K
+  for (const [d, s] of [[1e12, "T"], [1e9, "B"], [1e6, "M"], [1e3, "K"]]) if (Math.abs(v) >= d) return sig3(v / d, compact) + s;
+  return sig3(v, compact);
+}
+function fmtNs(v, compact = false) {
   if (v == null) return "–";
   if (v === 0) return "0";
-  for (const [d, u] of [[1e9, "s"], [1e6, "ms"], [1e3, "µs"]]) if (v >= d) return `${sig(v / d)} ${u}`;
+  v = Number(v.toPrecision(3));
+  for (const [d, u] of [[1e9, "s"], [1e6, "ms"], [1e3, "µs"]]) if (v >= d) return `${sig3(v / d, compact)} ${u}`;
   return `${Math.round(v)} ns`;
 }
-function fmtBytes(v) {
+function fmtBytes(v, compact = false) {
   if (v == null) return "–";
   if (v === 0) return "0";
-  for (const [d, u] of [[1 << 30, "GiB"], [1 << 20, "MiB"], [1 << 10, "KiB"]]) if (v >= d) return `${sig(v / d)} ${u}`;
-  return `${Math.round(v)} B`;
+  const units = [[1 << 30, "GiB"], [1 << 20, "MiB"], [1 << 10, "KiB"], [1, "B"]];
+  for (let i = 0; i < units.length; i++) {
+    let [d, u] = units[i];
+    if (v < d && d !== 1) continue;
+    // Round after scaling (binary units), and step up a unit if rounding reaches 1000.
+    if (i > 0 && Number((v / d).toPrecision(3)) >= 1000) [d, u] = units[i - 1];
+    return d === 1 ? `${Math.round(v)} B` : `${sig3(v / d, compact)} ${u}`;
+  }
+  return "–";
 }
 const pct = v => `±${v.toFixed(1)}%`;
 const noisy = p => p.cv_pct > DATA.cvWarn;
@@ -240,7 +276,7 @@ function showTip(cx, cy, title, rows) {
     const row = el("div", { class: "tip-row" });
     const key = el("span", { class: "key-line" });
     key.style.background = color(r.impl);
-    row.append(key, el("strong", {}, r.value), el("span", { class: "tip-name" }, r.impl));
+    row.append(key, el("strong", {}, r.value), el("span", { class: "tip-name" }, nameOf(r.impl)));
     if (r.detail) row.append(el("span", { class: "tip-detail" }, r.detail));
     tip.append(row);
   }
@@ -261,7 +297,7 @@ function legend(kind, impls = IMPLS) {
     const item = el("span", { class: "legend-item" });
     const key = el("span", { class: kind === "rect" ? "key-rect" : "key-line" });
     key.style.background = color(impl);
-    item.append(key, document.createTextNode(impl));
+    item.append(key, document.createTextNode(nameOf(impl)));
     box.append(item);
   }
   return box;
@@ -279,9 +315,9 @@ function card(parent, title, subtitle, legendKind, impls) {
 function missingNote(c, points) {
   for (const impl of implsIn(points)) {
     const mine = points.filter(p => p.impl === impl);
-    if (mine.length && mine.every(p => p.status !== "ok")) {
+    if (mine.length && mine.every(p => !shown(p))) {
       const p = mine[0];
-      c.append(el("p", { class: "card-note" }, `${impl}: ${p.status}${p.reason ? ` (${p.reason})` : ""}`));
+      c.append(el("p", { class: "card-note" }, `${nameOf(impl)}: ${p.status}${p.reason ? ` (${p.reason})` : ""}`));
     }
   }
 }
@@ -296,7 +332,7 @@ function tableView(c, points, cell) {
   const impls = implsIn(points);
   const head = el("tr");
   head.append(el("th", {}, "Threads"));
-  for (const impl of impls) head.append(el("th", {}, impl));
+  for (const impl of impls) head.append(el("th", {}, nameOf(impl)));
   table.append(el("thead"));
   table.tHead.append(head);
   const body = el("tbody");
@@ -306,7 +342,7 @@ function tableView(c, points, cell) {
     for (const impl of impls) {
       const p = findPoint(points, impl, t);
       const td = el("td");
-      if (p && p.status === "ok") td.textContent = cell(p);
+      if (shown(p)) td.textContent = cell(p) + partialMark(p);
       else td.append(el("span", { class: "muted" }, p ? p.status : "–"));
       tr.append(td);
     }
@@ -338,7 +374,7 @@ function lineChart(c, cfg) {
     impl,
     pts: threads.map(t => {
       const row = findPoint(cfg.points, impl, t);
-      const v = row && row.status === "ok" ? cfg.value(row) : null;
+      const v = shown(row) ? cfg.value(row) : null;
       return { row, v: v ?? null };
     }),
   }));
@@ -356,7 +392,7 @@ function lineChart(c, cfg) {
     const svg = sv("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: "img", tabindex: 0, "aria-label": `${cfg.label}. Use left and right arrow keys to read values.` });
     for (let v = 0; v <= max + step / 2; v += step) {
       svg.append(sv("line", { x1: m.left, x2: W - m.right, y1: y(v), y2: y(v), class: v === 0 ? "ax" : "gl" }));
-      svg.append(sv("text", { x: m.left - 8, y: y(v) + 4, class: "tick", "text-anchor": "end" }, cfg.fmt(v)));
+      svg.append(sv("text", { x: m.left - 8, y: y(v) + 4, class: "tick", "text-anchor": "end" }, cfg.fmt(v, true)));
     }
     threads.forEach((t, i) => svg.append(sv("text", { x: x(i), y: m.top + ph + 18, class: "tick", "text-anchor": "middle" }, String(t))));
     svg.append(sv("text", { x: m.left + pw / 2, y: H - 6, class: "axis-title", "text-anchor": "middle" }, "Worker threads (= pinned CPUs)"));
@@ -386,7 +422,7 @@ function lineChart(c, cfg) {
     const ends = series.filter(s => s.pts[last].v != null).map(s => ({ impl: s.impl, yy: y(s.pts[last].v) }));
     for (const e of ends) {
       if (ends.some(o => o !== e && Math.abs(o.yy - e.yy) < 14)) continue;
-      svg.append(sv("text", { x: x(last) + 10, y: e.yy + 4, class: "end-label" }, e.impl));
+      svg.append(sv("text", { x: x(last) + 10, y: e.yy + 4, class: "end-label" }, nameOf(e.impl)));
     }
 
     const show = (i, cx, cy) => {
@@ -429,7 +465,7 @@ function barChart(c, cfg) {
   const t = Math.max(...threadsOf(cfg.points));
   const rows = implsIn(cfg.points).map(impl => {
     const row = findPoint(cfg.points, impl, t);
-    const v = row && row.status === "ok" ? cfg.value(row) : null;
+    const v = shown(row) ? cfg.value(row) : null;
     return { impl, row, v: v ?? null };
   });
   const host = el("div", { class: "chart" });
@@ -445,12 +481,12 @@ function barChart(c, cfg) {
     const plotBottom = m.top + rows.length * rowH;
     for (let v = 0; v <= max + step / 2; v += step) {
       if (v > 0) svg.append(sv("line", { x1: x(v), x2: x(v), y1: m.top, y2: plotBottom, class: "gl" }));
-      svg.append(sv("text", { x: x(v), y: plotBottom + 18, class: "tick", "text-anchor": "middle" }, cfg.fmt(v)));
+      svg.append(sv("text", { x: x(v), y: plotBottom + 18, class: "tick", "text-anchor": "middle" }, cfg.fmt(v, true)));
     }
     rows.forEach((r, i) => {
       const top = m.top + i * rowH + (rowH - barH) / 2;
       const mid = top + barH / 2 + 4;
-      svg.append(sv("text", { x: m.left - 10, y: mid, class: "row-label", "text-anchor": "end" }, r.impl));
+      svg.append(sv("text", { x: m.left - 10, y: mid, class: "row-label", "text-anchor": "end" }, nameOf(r.impl)));
       if (r.v == null) {
         svg.append(sv("text", { x: x(0) + 8, y: mid, class: "note" }, r.row ? r.row.status : "no data"));
       } else {
@@ -459,7 +495,7 @@ function barChart(c, cfg) {
         svg.append(sv("path", { d, fill: color(r.impl) }));
         svg.append(sv("text", { x: x1 + 6, y: mid, class: "value-label" }, cfg.fmt(r.v)));
       }
-      const hit = sv("rect", { x: 0, y: m.top + i * rowH, width: W, height: rowH, class: "hit", tabindex: 0, "aria-label": `${r.impl}: ${r.v == null ? (r.row ? r.row.status : "no data") : cfg.fmt(r.v)}` });
+      const hit = sv("rect", { x: 0, y: m.top + i * rowH, width: W, height: rowH, class: "hit", tabindex: 0, "aria-label": `${nameOf(r.impl)}: ${r.v == null ? (r.row ? r.row.status : "no data") : cfg.fmt(r.v)}` });
       const show = (cx, cy) => showTip(cx, cy, `${t} thread${t === 1 ? "" : "s"}`, [
         r.v == null
           ? { impl: r.impl, value: r.row ? r.row.status : "no data", detail: r.row?.reason ?? null }
@@ -476,10 +512,22 @@ function barChart(c, cfg) {
   });
 }
 
+// Mirrors report.py clear_best: the best must display differently from the runner-up and their
+// median confidence intervals must not overlap; otherwise there is no clear winner.
+function clearBest(entries, fmt, lowerBetter, ciOf) {
+  const ranked = entries.filter(([, v]) => v != null).sort(([, a], [, b]) => (lowerBetter ? a - b : b - a));
+  if (ranked.length < 2) return null;
+  const [[first, v1, p1], [, v2, p2]] = ranked;
+  if (fmt(v1) === fmt(v2)) return null;
+  const [c1, c2] = [ciOf(p1), ciOf(p2)];
+  if (c1 && c2 && !(lowerBetter ? c1[1] < c2[0] : c1[0] > c2[1])) return null;
+  return first;
+}
+
 // ---- page
 const meta = DATA.meta;
 const bases = [...new Set(IMPLS.map(i => i.split("+")[0]))];
-document.getElementById("title").textContent = bases.map(b => b[0].toUpperCase() + b.slice(1)).join(" vs ") +
+document.getElementById("title").textContent = bases.map(nameOf).join(" vs ") +
   (IMPLS.some(i => i.includes("+")) ? " (with Tokio variants)" : "");
 document.getElementById("subtitle").textContent =
   `Profile “${meta.profile}”, started ${meta.started_at}. Each point is the median of ${meta.reps} measured runs ` +
@@ -499,7 +547,7 @@ if (meta.warnings.length) {
 (() => {
   const table = el("table");
   const head = el("tr");
-  for (const h of ["Test", "Threads", ...IMPLS, "Unit"]) head.append(el("th", {}, h));
+  for (const h of ["Test", "Threads", ...IMPLS.map(nameOf), "Unit"]) head.append(el("th", {}, h));
   table.append(el("thead"));
   table.tHead.append(head);
   const body = el("tbody");
@@ -509,24 +557,24 @@ if (meta.warnings.length) {
     const fmt = lowerBetter ? fmtBytes : fmtSI;
     for (const z of sec.sizes) {
       const t = Math.max(...threadsOf(z.points));
-      const vals = IMPLS.map(impl => { const p = findPoint(z.points, impl, t); return p && p.status === "ok" ? value(p) : null; });
-      const present = vals.filter(v => v != null);
-      const best = present.length > 1 ? (lowerBetter ? Math.min : Math.max)(...present) : null;
+      const vals = IMPLS.map(impl => { const p = findPoint(z.points, impl, t); return shown(p) ? value(p) : null; });
+      const bestImpl = clearBest(IMPLS.map((impl, i) => [impl, vals[i], findPoint(z.points, impl, t)]), fmt, lowerBetter,
+        p => (lowerBetter ? p.bytes_ci : p.ops_ci));
       const tr = el("tr");
       const name = el("td");
       const link = el("a", { href: `#${sec.workload}` }, sec.title);
       link.style.color = "inherit";
-      name.append(link, el("span", { class: "muted" }, ` · ${fmtSI(z.size)}`));
+      name.append(link, el("span", { class: "muted" }, ` · ${fmtSI(z.size, true)}`));
       tr.append(name, el("td", {}, String(t)));
       IMPLS.forEach((impl, i) => {
         const td = el("td");
+        const p = findPoint(z.points, impl, t);
         if (vals[i] == null) {
-          const p = findPoint(z.points, impl, t);
-          td.append(el("span", { class: "muted" }, p ? p.status : "–"));
-        } else if (vals[i] === best) {
-          td.append(el("strong", {}, fmt(vals[i])));
+          td.append(el("span", { class: "muted" }, p && !shown(p) ? p.status : "–"));
+        } else if (impl === bestImpl) {
+          td.append(el("strong", {}, fmt(vals[i])), document.createTextNode(partialMark(p)));
         } else {
-          td.textContent = fmt(vals[i]);
+          td.textContent = fmt(vals[i]) + partialMark(p);
         }
         tr.append(td);
       });
@@ -554,13 +602,13 @@ for (const sec of DATA.sections) {
   root.append(section);
 
   if (sec.workload === "idle") {
-    const max = Math.max(0, ...sec.sizes.flatMap(z => z.points.filter(p => p.status === "ok").map(p => p.bytes_per_task)));
+    const max = Math.max(0, ...sec.sizes.flatMap(z => z.points.filter(shown).map(p => p.bytes_per_task)));
     for (const z of sec.sizes) {
       const c = card(grid, `${z.size.toLocaleString("en-US")} idle tasks`, "Resident memory added per task · lower is better · same scale across sizes", "rect", implsIn(z.points));
       barChart(c, {
         points: z.points, max, fmt: fmtBytes, value: p => p.bytes_per_task,
         label: `Memory per idle task with ${z.size} tasks`,
-        detail: p => `${pct(p.cv_pct)} across ${p.runs} runs`,
+        detail: p => `${pct(p.cv_pct)} across ${runsText(p)}`,
       });
       missingNote(c, z.points);
       tableView(c, z.points, p => `${fmtBytes(p.bytes_per_task)} ${pct(p.cv_pct)}`);
@@ -573,7 +621,7 @@ for (const sec of DATA.sections) {
     lineChart(c, {
       points: z.points, whisker: true, fmt: fmtSI, value: p => p.ops_median,
       label: `${sec.title} throughput by thread count`,
-      detail: p => `${pct(p.cv_pct)}${noisy(p) ? " ⚠ noisy" : ""} · range ${fmtSI(p.ops_min)}–${fmtSI(p.ops_max)} · ${p.runs} runs`,
+      detail: p => `${pct(p.cv_pct)}${noisy(p) ? " ⚠ noisy" : ""} · range ${fmtSI(p.ops_min)}–${fmtSI(p.ops_max)} · ${runsText(p)}`,
     });
     missingNote(c, z.points);
     tableView(c, z.points, p => `${fmtSI(p.ops_median)} ${pct(p.cv_pct)}${noisy(p) ? " ⚠" : ""}`);
