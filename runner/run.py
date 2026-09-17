@@ -196,7 +196,8 @@ def main() -> None:
                 too_big = [i for i in here if size * idle_bytes_estimate(i) > mem_available * 0.8]
                 for impl in too_big:
                     rec = base_record(impl, workload, size, threads, pinned)
-                    rec.update(status="error", reason="runner: not enough free memory", phase="measure", valid=None)
+                    # A deliberate skip, not a failure (and Crossbeam would skip anyway above its thread cap).
+                    rec.update(status="skipped", reason="runner: not enough free memory", phase="measure", valid=None)
                     raw.write(json.dumps(rec) + "\n")
                 if too_big:
                     print(f"(not enough free memory for {', '.join(too_big)}) ", end="")

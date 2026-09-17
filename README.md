@@ -21,62 +21,72 @@ results/<profile>-<timestamp>/
 
 ## Results
 
-> **These results predate a fairness review, and some rows are biased. Rerun before relying on them.**
-> An independent code review found problems that the current code fixes but these numbers still contain:
-> - **Ping-pong latency:** sampling every 16th round trip lined up with Tokio's scheduler. Tokio's p50 reads
->   190 ns instead of about 140 ns, and the 1-thread p99 for both Tokio builds is inflated (tuned: 301 ns vs
->   about 160 ns). Now every 17th.
-> - **Spawn:** timed in a cold process, so Go and default Tokio paid first-touch costs (thread creation, stack
->   and page faults) inside the timer. Warm, default Tokio gets about 4M tasks/s instead of 2.6M, and tuned
->   Tokio's lead over Go at 10K tasks shrinks from 1.41× to about 1.1×. Now every implementation does one untimed
->   pass first.
-> - **Lock contention:** Crossbeam used `parking_lot::Mutex`, a third-party lock, so its "3× Go" was
->   parking_lot's design. With `std::sync::Mutex` (Crossbeam has no mutex) it runs about 34M/s at 12 threads,
->   close to Go.
-> - **Memory at 10K tasks:** read from `VmRSS`, which moves in per-CPU batches. It can be off by roughly
->   ±150 B per task. Now read from `smaps_rollup`, which is exact.
-
-From [`results/full-20260916-231803`](results/full-20260916-231803/summary.md): AMD Ryzen 5 5625U laptop
-(6 cores / 12 threads), 3 warm-ups + 10 measured runs, medians. The CPU governor was `powersave` and the load
-average was 3.3 at the start, so some cells are noisy (marked ⚠ in `summary.md`). `summary.md` also has every
-test at 1, 2 and 6 threads; spread, min/max and p99.9 latency are in `summary.csv`; charts are in `report.html`.
+From [`results/full-20260917-103559`](results/full-20260917-103559/summary.md): AMD Ryzen 5 5625U laptop
+(6 cores / 12 threads), `performance` governor, on AC power, code at commit `8e4c12b`. 3 warm-ups + 10 measured
+runs; medians. Background CPU measured before each test stayed at 0.5–6.8%. The CPU reached 84 °C, so
+the CPU-heavy row probably includes thermal throttling. **Bold** marks a clear best: its confidence interval
+doesn't overlap the runner-up's. Every thread count, confidence intervals, CPU time and p99.9 latency are in
+`summary.md` / `summary.csv`.
 
 At 12 threads:
 
-| Test case | Tokio | Tuned Tokio | Crossbeam | Go | Unit |
+| Test | Tokio | Tuned Tokio | Crossbeam | Go | Unit |
 |---|---:|---:|---:|---:|---|
-| `spsc` | 12.8M | **129M** | 36.4M | 28.5M | messages/s |
-| `spsc-cap1` | 4.52M | **18.2M** | 6.64M | 9.92M | messages/s |
-| `mpmc` | 9.46M | **67.7M** | 24.1M | 15.3M | messages/s |
-| `mpmc-cap1` | 1.95M | **18.1M** | 4.83M | 6.20M | messages/s |
-| `pingpong` | 4.37M | **7.53M** | 3.94M | 4.00M | round trips/s |
-| `spawn`, 1M tasks | 2.59M | 5.21M | skipped | **5.55M** | tasks/s |
-| `cpu` | 115M | 117M | 115M | 107M | items/s |
-| `select` | 20.3M | **40.7M** | 13.2M | 13.8M | messages/s |
-| `select-cap1` | 5.78M | 5.15M | 3.32M | **7.17M** | messages/s |
-| `mutex` | 9.47M | 82.6M | 81.6M | 27.0M | increments/s |
-| `idle`, 1M tasks | 384 B | **256 B** | skipped | 2.69 KiB | memory per task |
+| 1 sender → 1 receiver, capacity 1024 | 13.1M | **135M** | 37.1M | 29.3M | messages/s |
+| 1 sender → 1 receiver, capacity 1 | 4.91M | **19.7M** | 7.10M | 10.5M | messages/s |
+| 4 senders → 4 receivers, capacity 1024 | 9.78M | **81.1M** | 26.5M | 18.7M | messages/s |
+| 4 senders → 4 receivers, capacity 1 | 2.08M | **19.2M** | 5.14M | 6.62M | messages/s |
+| Ping-pong | 4.31M | **7.04M** | 3.86M | 3.91M | round trips/s |
+| Ping-pong latency p50 | 140 ns | **90 ns** | 280 ns | 250 ns | per round trip, lower is better |
+| Ping-pong latency p99 | 2.18 µs | 2.17 µs | **341 ns** | 516 ns | per round trip, lower is better |
+| Spawn and join, 10K tasks | 3.87M | 5.87M | 28.2K | 5.32M | tasks/s |
+| Spawn and join, 1M tasks | 3.56M | 5.31M | skipped | **5.59M** | tasks/s |
+| CPU-heavy hashing | 99.0M | 99.1M | 99.7M | 90.7M | items/s |
+| Select over 2 channels, capacity 1024 | 20.0M | **36.9M** | 13.3M | 13.8M | messages/s |
+| Select over 2 channels, capacity 1 | 5.43M | 4.91M | 5.77M | **7.09M** | messages/s |
+| Lock contention, 8 workers | 8.98M | **74.8M** | 29.4M | 25.8M | increments/s |
+| Memory per idle task, 10K tasks | 408 B | **261 B** | 9.92 KiB | 2.79 KiB | bytes per task, lower is better |
+| Memory per idle task, 1M tasks | 385 B | **258 B** | skipped ¹ | 2.69 KiB | bytes per task, lower is better |
 
-- **Tuned Tokio** is clearly fastest on 7 of the 11 cases, ahead by under 2% on `cpu`, tied with Crossbeam on
-  `mutex`, and behind Go on `spawn` (1M tasks) and `select-cap1`. On `select-cap1` it is also 10–14% slower than
-  default Tokio at every thread count: batched receives can't help when only one message fits. The big gains are
-  on channels: 10× default Tokio on `spsc` and 7× on `mpmc` (see "Tuned Tokio" for where that comes from).
-- **Default Tokio** is the slowest on `spsc`, `mpmc` and their capacity-1 versions from 2 threads up, though its
-  `select!` beats both Go and Crossbeam at capacity 1024 (not at capacity 1, where Go wins). Its async
-  `tokio::sync::Mutex` is about 3× slower than Go's `sync.Mutex` and about 9× slower than `parking_lot`.
-- **Capacity 1** costs everyone. Among the untuned implementations Go copes best: it leads on every capacity-1
-  case at 6 and 12 threads (at 2 threads Crossbeam edges it on `mpmc-cap1`, 7.19M vs 6.93M, both noisy) and is
-  fastest overall on `select-cap1`, where tuned Tokio's batching can't help.
-- **Crossbeam on 1 CPU** drops to 109K–154K messages/s on capacity-1 channels and ping-pong, because each message
-  needs an OS thread switch. With 2 or more CPUs it has the best ping-pong tail: p99 about 300 ns, against
-  320–430 ns for Go and about 2.2 µs for both Tokio versions. Tuned Tokio has the best median, 90 ns.
-- **Spawning 1M tasks:** Go leads at 6 and 12 threads; tuned Tokio leads on 1 and 2 threads (6.64M and 6.19M
-  tasks/s, against Go's 1.43M and 5.30M), and at every thread count with 10k tasks. Crossbeam's OS threads
-  manage 18.5K–29.8K/s at 10k tasks.
-- **CPU-heavy work** is within 10% everywhere (Go about 7% behind); tuning doesn't matter because the hot loop
-  never allocates.
-- **Memory per idle task** at 10k tasks: tuned Tokio 225 B, default Tokio 393 B, Go 2.75 KiB, Crossbeam OS threads
-  9.84 KiB (excluding kernel memory).
+1. Crossbeam runs one OS thread per task and stops at 20,000. This cell reads "error" in `summary.md` because
+   the runner's memory guard skipped it first; the runner now records that as a skip.
+
+**Default Tokio, Crossbeam and Go:**
+- **Channels with room to buffer (capacity 1024):** Crossbeam is fastest (37.1M on 1 → 1, 26.5M on 4 → 4),
+  Go second (29.3M, 18.7M), default Tokio last (13.1M, 9.78M).
+- **Capacity 1:** Go is the fastest of the three on all three capacity-1 tests at every thread count from 2 up,
+  e.g. 1 → 1 at 12 threads: Go 10.5M, Crossbeam 7.10M, Tokio 4.91M.
+- **Ping-pong:** Tokio does the most round trips (4.31M) with the lowest median latency (140 ns vs Go 250 ns,
+  Crossbeam 280 ns). Crossbeam has the best tail from 2 threads up (p99 331–346 ns, Go 441–516 ns, Tokio about
+  2.2 µs). On 1 CPU Crossbeam collapses to 134K round trips/s because each hop is an OS thread switch.
+- **Select at capacity 1024:** Tokio 20.0M, well ahead of Go (13.8M) and Crossbeam (13.3M).
+- **Spawn:** Go leads at 12 threads (5.59M tasks/s at 1M tasks vs Tokio 3.56M); on 1 thread Tokio leads (3.80M
+  vs Go 1.25M). Crossbeam's OS threads manage 18K–29K/s.
+- **Lock contention:** Crossbeam's `std::sync::Mutex` (29.4M) and Go's `sync.Mutex` (25.8M) are close; Tokio's
+  async mutex is about 3× slower (8.98M).
+- **CPU-heavy:** Tokio and Crossbeam tie at about 99M items/s; Go is about 9% behind.
+- **Memory per idle task:** Tokio 385 B, Go 2.69 KiB (about 7×), a Crossbeam OS thread 9.92 KiB (about 25× Tokio
+  at 10K tasks, not counting kernel memory).
+
+**Tuned Tokio** is the clear best on 10 of the 15 rows. Against default Tokio: 10× on 1 → 1, 8× on 4 → 4, 4× and
+9× on their capacity-1 versions, 1.8× on select, 8× on lock contention, 1.5× on spawning 1M tasks, and a third
+less memory per idle task. Where it doesn't win:
+- **Select at capacity 1:** 5–10% slower than default Tokio at every thread count; batching can't help a 1-slot
+  channel.
+- **Ping-pong tail:** p99 is about 2.2 µs from 2 threads up, the same as default Tokio.
+- **Spawn:** no clear winner against Go at 10K tasks; Go leads at 6 and 12 threads with 1M tasks.
+- **CPU-heavy:** no gain; the loop doesn't allocate.
+
+**What the fairness fixes changed**, compared with the earlier run in `results/full-20260916-231803` (same machine,
+`powersave` governor, older code):
+- Tokio ping-pong p50 190 → 140 ns, and tuned Tokio's 1-thread p99 301 → 166 ns (sampling no longer aliases).
+- Default Tokio spawning 1M tasks at 12 threads 2.59M → 3.56M/s, and Go at 10K tasks 4.14M → 5.32M/s (untimed
+  warm-up pass). Tuned Tokio's lead over Go at 10K tasks went from 1.41× to no clear winner.
+- Crossbeam lock contention at 12 threads 81.6M → 29.4M (`std::sync::Mutex` instead of `parking_lot`), level with
+  Go.
+- Tuned Tokio memory at 10K tasks 225 → 261 B (exact RSS), now in line with its 1M-task figure.
+- Not from the fixes: CPU-heavy at 12 threads 115M → 99M for every implementation, most likely throttling under
+  the `performance` governor.
 
 ## Running
 
