@@ -6,4 +6,3 @@ version.workspace = true
 [dependencies]
 common = { path = "../common" }
 crossbeam = "0.8"
-parking_lot = "0.12"

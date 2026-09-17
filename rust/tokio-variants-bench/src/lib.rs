@@ -7,7 +7,7 @@
 //! `--variant a,b` switches on tuning tricks (see `VARIANTS`). The allocator is
 //! picked per binary: `tokio-bench` (system malloc) or `tokio-bench-mimalloc`.
 
-use common::{chunk_bounds, cpu_range, fail, proc_status_kb, Args, Report};
+use common::{chunk_bounds, cpu_range, fail, proc_rss_kb, Args, Report};
 use std::future::Future;
 use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -385,7 +385,13 @@ async fn spawn(a: Args) -> Report {
     if a.has("no-handles") {
         return spawn_without_handles(a).await;
     }
-    let n = a.size;
+    // One untimed pass first, as in every implementation, so the timed pass runs in a warm process.
+    spawn_join(a.size).await;
+    let (elapsed, sum) = spawn_join(a.size).await;
+    Report::ok(name(), &a, a.size, elapsed, sum)
+}
+
+async fn spawn_join(n: u64) -> (Duration, u64) {
     let mut handles = Vec::with_capacity(n as usize);
     let start = Instant::now();
     for i in 0..n {
@@ -395,7 +401,7 @@ async fn spawn(a: Args) -> Report {
     for h in handles {
         sum = sum.wrapping_add(h.await.unwrap());
     }
-    Report::ok(name(), &a, n, start.elapsed(), sum)
+    (start.elapsed(), sum)
 }
 
 struct Completion {
@@ -413,6 +419,14 @@ async fn spawn_without_handles(a: Args) -> Report {
         done: AtomicU64::new(0),
         all_done: Notify::new(),
     }));
+    spawn_once(shared, n).await;
+    shared.slots.iter().for_each(|slot| slot.store(0, Ordering::Relaxed));
+    shared.done.store(0, Ordering::Relaxed);
+    let (elapsed, sum) = spawn_once(shared, n).await;
+    Report::ok(name(), &a, n, elapsed, sum)
+}
+
+async fn spawn_once(shared: &'static Completion, n: u64) -> (Duration, u64) {
     let start = Instant::now();
     for i in 0..n {
         tokio::spawn(async move {
@@ -426,7 +440,7 @@ async fn spawn_without_handles(a: Args) -> Report {
         shared.all_done.notified().await;
     }
     let sum = shared.slots.iter().fold(0u64, |acc, s| acc.wrapping_add(s.load(Ordering::Relaxed)));
-    Report::ok(name(), &a, n, start.elapsed(), sum)
+    (start.elapsed(), sum)
 }
 
 /// CPU-bound chunks spawned straight onto the runtime (no `spawn_blocking`),
@@ -589,7 +603,7 @@ async fn idle(a: Args) -> Report {
     let parked = Arc::new(AtomicU64::new(0));
     let finished = Arc::new(AtomicU64::new(0));
     let all_done = Arc::new(Notify::new());
-    let before = proc_status_kb("VmRSS").unwrap_or(0);
+    let before = proc_rss_kb().unwrap_or(0);
     let start = Instant::now();
     for _ in 0..n {
         let (gate, parked, finished, all_done) = (gate.clone(), parked.clone(), finished.clone(), all_done.clone());
@@ -606,7 +620,7 @@ async fn idle(a: Args) -> Report {
     }
     let elapsed = start.elapsed();
     tokio::time::sleep(Duration::from_millis(a.settle_ms)).await;
-    let after = proc_status_kb("VmRSS").unwrap_or(0);
+    let after = proc_rss_kb().unwrap_or(0);
     gate.close();
     while finished.load(Ordering::Relaxed) < n {
         all_done.notified().await;

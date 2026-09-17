@@ -5,14 +5,14 @@
 //! exists before its timer starts). `spawn` and `idle` measure thread creation
 //! itself, so they don't use one.
 
-use common::{chunk_bounds, cpu_range, fail, proc_status_kb, Args, Report, MAX_OS_THREADS};
+use common::{chunk_bounds, cpu_range, fail, proc_rss_kb, Args, Report, MAX_OS_THREADS};
 use crossbeam::channel::{bounded, never, select};
 use crossbeam::deque::{Injector, Stealer, Worker};
 use crossbeam::thread;
-use parking_lot::Mutex;
+use crossbeam::utils::Backoff;
 use std::iter;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Barrier, OnceLock};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Barrier, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 const IMPL: &str = "crossbeam";
@@ -164,11 +164,18 @@ fn pingpong(a: &Args) -> Report {
     .unwrap()
 }
 
+/// One untimed pass first, as in every implementation, so the timed pass runs in a warm process.
 fn spawn(a: &Args) -> Report {
     let n = a.size;
     if n > MAX_OS_THREADS {
         return Report::skipped(IMPL, a, format!("one OS thread per task; capped at {MAX_OS_THREADS}"));
     }
+    spawn_join(n);
+    let (elapsed, sum) = spawn_join(n);
+    Report::ok(IMPL, a, n, elapsed, sum)
+}
+
+fn spawn_join(n: u64) -> (Duration, u64) {
     thread::scope(|s| {
         let mut handles = Vec::with_capacity(n as usize);
         let start = Instant::now();
@@ -176,7 +183,7 @@ fn spawn(a: &Args) -> Report {
             handles.push(s.spawn(move |_| i));
         }
         let sum = handles.into_iter().fold(0u64, |acc, h| acc.wrapping_add(h.join().unwrap()));
-        Report::ok(IMPL, a, n, start.elapsed(), sum)
+        (start.elapsed(), sum)
     })
     .unwrap()
 }
@@ -192,17 +199,29 @@ fn cpu(a: &Args) -> Report {
     }
     let locals: Vec<Worker<(u64, u64)>> = (0..a.threads).map(|_| Worker::new_fifo()).collect();
     let stealers: Vec<Stealer<(u64, u64)>> = locals.iter().map(Worker::stealer).collect();
+    // Workers stop when this reaches zero. Empty queues alone aren't enough: a batch being moved by
+    // steal_batch_and_pop is briefly in neither queue, and a worker that quit then would be lost.
+    let remaining = AtomicUsize::new(chunks);
     let line = StartLine::new(a.threads);
     thread::scope(|s| {
         let handles: Vec<_> = locals
             .into_iter()
             .map(|local| {
-                let (injector, stealers, line) = (&injector, &stealers, &line);
+                let (injector, stealers, line, remaining) = (&injector, &stealers, &line, &remaining);
                 s.spawn(move |_| {
                     line.go();
                     let mut sum = 0u64;
-                    while let Some((lo, hi)) = find_task(&local, injector, stealers) {
-                        sum = sum.wrapping_add(cpu_range(lo, hi, rounds));
+                    let backoff = Backoff::new();
+                    loop {
+                        match find_task(&local, injector, stealers) {
+                            Some((lo, hi)) => {
+                                sum = sum.wrapping_add(cpu_range(lo, hi, rounds));
+                                remaining.fetch_sub(1, Ordering::Relaxed);
+                                backoff.reset();
+                            }
+                            None if remaining.load(Ordering::Relaxed) == 0 => break,
+                            None => backoff.snooze(),
+                        }
                     }
                     sum
                 })
@@ -283,7 +302,7 @@ fn mutex(a: &Args) -> Report {
                 s.spawn(move |_| {
                     line.go();
                     for _ in 0..per {
-                        *counter.lock() += 1;
+                        *counter.lock().unwrap() += 1;
                     }
                 })
             })
@@ -292,7 +311,7 @@ fn mutex(a: &Args) -> Report {
             h.join().unwrap();
         }
         let elapsed = line.elapsed();
-        Report::ok(IMPL, a, per * a.workers as u64, elapsed, *counter.lock())
+        Report::ok(IMPL, a, per * a.workers as u64, elapsed, *counter.lock().unwrap())
     })
     .unwrap()
 }
@@ -307,7 +326,7 @@ fn idle(a: &Args) -> Report {
     let (gate_tx, gate_rx) = bounded::<()>(0);
     let parked = AtomicU64::new(0);
     let finished = AtomicU64::new(0);
-    let before = proc_status_kb("VmRSS").unwrap_or(0);
+    let before = proc_rss_kb().unwrap_or(0);
     thread::scope(|s| {
         let start = Instant::now();
         for _ in 0..n {
@@ -322,7 +341,7 @@ fn idle(a: &Args) -> Report {
         }
         let elapsed = start.elapsed();
         std::thread::sleep(Duration::from_millis(a.settle_ms));
-        let after = proc_status_kb("VmRSS").unwrap_or(0);
+        let after = proc_rss_kb().unwrap_or(0);
         drop(gate_tx);
         (elapsed, after)
     })

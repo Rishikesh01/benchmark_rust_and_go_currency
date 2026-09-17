@@ -38,7 +38,7 @@ impl Args {
             workers: 8,
             tasks: 256,
             rounds: 32,
-            sample_every: 16,
+            sample_every: 17,
             settle_ms: 200,
             variants: Vec::new(),
         };
@@ -112,6 +112,8 @@ pub struct Report {
     pub lat_p999_ns: Option<u64>,
     pub rss_delta_kb: Option<u64>,
     pub bytes_per_task: Option<f64>,
+    /// The workload parameters this run actually used, echoed so the runner can check them.
+    pub params: String,
 }
 
 impl Report {
@@ -125,6 +127,7 @@ impl Report {
             ops,
             wall_ns: wall.as_nanos() as u64,
             checksum,
+            params: params_json(a),
             ..Default::default()
         }
     }
@@ -137,6 +140,7 @@ impl Report {
             reason: Some(reason),
             threads: a.threads,
             size: a.size,
+            params: params_json(a),
             ..Default::default()
         }
     }
@@ -164,7 +168,7 @@ impl Report {
         let optf = |v: Option<f64>| v.map_or("null".to_string(), |v| format!("{v:.1}"));
         let s = |v: &str| format!("\"{}\"", v.replace('\\', "\\\\").replace('"', "\\\""));
         println!(
-            "{{\"impl\":{},\"workload\":{},\"status\":{},\"reason\":{},\"threads\":{},\"size\":{},\"ops\":{},\
+            "{{\"impl\":{},\"workload\":{},\"status\":{},\"reason\":{},\"threads\":{},\"size\":{},\"params\":{},\"ops\":{},\
              \"wall_ns\":{},\"ops_per_sec\":{:.1},\"checksum\":{},\"lat_p50_ns\":{},\"lat_p99_ns\":{},\
              \"lat_p999_ns\":{},\"peak_rss_kb\":{},\"rss_delta_kb\":{},\"bytes_per_task\":{}}}",
             s(&self.implementation),
@@ -173,6 +177,7 @@ impl Report {
             self.reason.as_deref().map_or("null".to_string(), s),
             self.threads,
             self.size,
+            if self.params.is_empty() { "{}" } else { &self.params },
             self.ops,
             self.wall_ns,
             ops_per_sec,
@@ -185,6 +190,23 @@ impl Report {
             optf(self.bytes_per_task),
         );
     }
+}
+
+/// Workload parameters as a JSON object, keyed like the runner's flags.
+fn params_json(a: &Args) -> String {
+    format!(
+        "{{\"capacity\":{},\"producers\":{},\"consumers\":{},\"workers\":{},\"tasks\":{},\"rounds\":{},\"sample-every\":{},\"settle-ms\":{}}}",
+        a.capacity, a.producers, a.consumers, a.workers, a.tasks, a.rounds, a.sample_every, a.settle_ms
+    )
+}
+
+/// Resident memory in kB. `smaps_rollup` is exact; `VmRSS` in /proc/self/status is updated in per-CPU batches
+/// (tens to hundreds of kB), which is too coarse for per-task memory at 10K tasks.
+pub fn proc_rss_kb() -> Option<u64> {
+    std::fs::read_to_string("/proc/self/smaps_rollup")
+        .ok()
+        .and_then(|s| s.lines().find(|l| l.starts_with("Rss:")).and_then(|l| l.split_whitespace().nth(1)?.parse().ok()))
+        .or_else(|| proc_status_kb("VmRSS"))
 }
 
 /// Nearest-rank percentile on an already sorted slice.

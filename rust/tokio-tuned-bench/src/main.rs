@@ -12,7 +12,7 @@
 //!
 //! `cpu` and `idle` are unchanged apart from the allocator.
 
-use common::{chunk_bounds, cpu_range, fail, proc_status_kb, Args, Report};
+use common::{chunk_bounds, cpu_range, fail, proc_rss_kb, Args, Report};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -151,7 +151,8 @@ struct Completion {
 }
 
 /// No JoinHandles: each task writes its own slot and bumps a counter, like the
-/// Go version with its results slice and WaitGroup.
+/// Go version with its results slice and WaitGroup. One untimed pass runs first,
+/// as in every implementation, so the timed pass runs in a warm process.
 async fn spawn(a: Args) -> Report {
     let n = a.size;
     // Leaked so tasks can borrow it as 'static without per-task Arc refcounting.
@@ -160,6 +161,15 @@ async fn spawn(a: Args) -> Report {
         done: AtomicU64::new(0),
         all_done: Notify::new(),
     }));
+    spawn_once(shared, n).await;
+    // Reset outside the timer, like Go clearing its results slice between passes.
+    shared.slots.iter().for_each(|slot| slot.store(0, Ordering::Relaxed));
+    shared.done.store(0, Ordering::Relaxed);
+    let (elapsed, sum) = spawn_once(shared, n).await;
+    Report::ok(IMPL, &a, n, elapsed, sum)
+}
+
+async fn spawn_once(shared: &'static Completion, n: u64) -> (Duration, u64) {
     let start = Instant::now();
     for i in 0..n {
         tokio::spawn(async move {
@@ -169,11 +179,12 @@ async fn spawn(a: Args) -> Report {
             }
         });
     }
+    // A permit left over from the warm-up pass only causes one extra loop check.
     while shared.done.load(Ordering::Relaxed) < n {
         shared.all_done.notified().await;
     }
     let sum = shared.slots.iter().fold(0u64, |acc, s| acc.wrapping_add(s.load(Ordering::Relaxed)));
-    Report::ok(IMPL, &a, n, start.elapsed(), sum)
+    (start.elapsed(), sum)
 }
 
 /// Unchanged from `tokio-bench`: the hot loop never allocates.
@@ -192,8 +203,9 @@ async fn cpu(a: Args) -> Report {
     Report::ok(IMPL, &a, n, start.elapsed(), sum)
 }
 
-/// Stays on tokio mpsc (kanal was not screened for `select!`), but receives
-/// in batches with `recv_many`, which is cancel-safe inside `select!`.
+/// Stays on tokio mpsc: kanal's receive future loses messages if it is dropped
+/// after being polled, so kanal is not safe inside `select!`. `recv_many` is
+/// cancel-safe.
 async fn select(a: Args) -> Report {
     let half = a.size / 2;
     let (tx1, mut rx1) = mpsc::channel::<u64>(a.capacity);
@@ -263,7 +275,7 @@ async fn idle(a: Args) -> Report {
     let parked = Arc::new(AtomicU64::new(0));
     let finished = Arc::new(AtomicU64::new(0));
     let all_done = Arc::new(Notify::new());
-    let before = proc_status_kb("VmRSS").unwrap_or(0);
+    let before = proc_rss_kb().unwrap_or(0);
     let start = Instant::now();
     for _ in 0..n {
         let (gate, parked, finished, all_done) = (gate.clone(), parked.clone(), finished.clone(), all_done.clone());
@@ -280,7 +292,7 @@ async fn idle(a: Args) -> Report {
     }
     let elapsed = start.elapsed();
     tokio::time::sleep(Duration::from_millis(a.settle_ms)).await;
-    let after = proc_status_kb("VmRSS").unwrap_or(0);
+    let after = proc_rss_kb().unwrap_or(0);
     gate.close();
     while finished.load(Ordering::Relaxed) < n {
         all_done.notified().await;

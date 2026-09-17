@@ -134,9 +134,18 @@ func pingpong(a Args) *Report {
 	return okReport(a, n, time.Since(start), token).withLatencies(samples)
 }
 
+// One untimed pass first, as in every implementation, so the timed pass runs in a warm process
+// (goroutine stacks, OS threads, heap) instead of paying first-touch costs.
 func spawn(a Args) *Report {
-	n := a.Size
-	results := make([]uint64, n)
+	results := make([]uint64, a.Size)
+	spawnOnce(results)
+	clear(results)
+	elapsed, sum := spawnOnce(results)
+	return okReport(a, a.Size, elapsed, sum)
+}
+
+func spawnOnce(results []uint64) (time.Duration, uint64) {
+	n := uint64(len(results))
 	var wg sync.WaitGroup
 	start := time.Now()
 	wg.Add(int(n))
@@ -151,7 +160,7 @@ func spawn(a Args) *Report {
 	for _, v := range results {
 		sum += v
 	}
-	return okReport(a, n, time.Since(start), sum)
+	return time.Since(start), sum
 }
 
 func cpu(a Args) *Report {
@@ -253,7 +262,7 @@ func idle(a Args) *Report {
 	gate := make(chan struct{})
 	var parked, finished atomic.Uint64
 	var wg sync.WaitGroup
-	before, _ := procStatusKb("VmRSS")
+	before, _ := procRssKb()
 	start := time.Now()
 	wg.Add(int(n))
 	for i := uint64(0); i < n; i++ {
@@ -269,7 +278,7 @@ func idle(a Args) *Report {
 	}
 	elapsed := time.Since(start)
 	time.Sleep(time.Duration(a.SettleMs) * time.Millisecond)
-	after, _ := procStatusKb("VmRSS")
+	after, _ := procRssKb()
 	close(gate)
 	wg.Wait()
 	return okReport(a, n, elapsed, finished.Load()).withMemory(before, after, n)

@@ -74,7 +74,6 @@ version = "0.1.0"
 dependencies = [
  "common",
  "crossbeam",
- "parking_lot",
 ]
 
 [[package]]
