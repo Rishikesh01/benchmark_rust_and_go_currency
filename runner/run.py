@@ -185,7 +185,6 @@ def main() -> None:
                 configs.append((workload, size, threads))
 
     rng = random.Random(seed)
-    consensus: dict = {}
     with open(out / "raw.jsonl", "a") as raw:
         for n, (workload, size, threads) in enumerate(configs, 1):
             pinned = cpus[:threads]
@@ -208,7 +207,7 @@ def main() -> None:
             conditions = wait_for_quiet()
             if conditions["quiet_wait_s"] or (conditions["background_cpu_pct"] or 0) > QUIET_CPU_PCT:
                 print(f"(background CPU {conditions['background_cpu_pct']}%, waited {conditions['quiet_wait_s']}s) ", end="", flush=True)
-            results = run_config(workload, size, threads, pinned, here, warmup, reps, rng, raw, args.timeout, consensus, conditions)
+            results = run_config(workload, size, threads, pinned, here, warmup, reps, rng, raw, args.timeout, conditions)
             cells = [progress_cell(impl, results[impl], workload) for impl in here]
             for i in range(0, len(cells), 3):
                 print(("\n       " if i == 0 else "       ") + "   ".join(cells[i:i + 3]))
@@ -348,7 +347,7 @@ def wait_for_quiet() -> dict:
     }
 
 
-def run_config(workload, size, threads, cpus, impls, warmup, reps, rng, raw, timeout, consensus, conditions) -> dict[str, list[dict]]:
+def run_config(workload, size, threads, cpus, impls, warmup, reps, rng, raw, timeout, conditions) -> dict[str, list[dict]]:
     active = list(impls)
     measured: dict[str, list[dict]] = {impl: [] for impl in impls}
     for round_no in range(warmup + reps):
@@ -360,14 +359,14 @@ def run_config(workload, size, threads, cpus, impls, warmup, reps, rng, raw, tim
             rec["phase"] = phase
             rec["round"] = round_no
             rec.update(conditions)
-            verify(rec, consensus)
+            verify(rec)
             raw.write(json.dumps(rec) + "\n")
             raw.flush()
             measured[impl].append(rec)
-            mark = "." if rec["status"] == "ok" and rec["valid"] else "s" if rec["status"] == "skipped" else "x"
+            mark = "." if rec["status"] == "ok" and rec["valid"] is not False else "s" if rec["status"] == "skipped" else "x"
             print(mark, end="", flush=True)
             # Skipped, failed or wrong-checksum implementations are not re-run for this config.
-            if rec["status"] != "ok" or not rec["valid"]:
+            if rec["status"] != "ok" or rec["valid"] is False:
                 active.remove(impl)
     return measured
 
@@ -478,31 +477,32 @@ def expected_checksum(workload: str, size: int, params: dict) -> int | None:
         case "idle":
             return size
         case "cpu":
-            # No closed form; computed with numpy, or None to fall back to cross-implementation agreement.
+            # No closed form; computed with numpy, or None when numpy is missing.
             return cpu_checksum(size, params["tasks"], params["rounds"])
     return None
 
 
-def verify(rec: dict, consensus: dict) -> None:
+def verify(rec: dict) -> None:
     if rec["status"] != "ok":
         rec["valid"] = None
         return
     expected = expected_checksum(program_workload(rec["workload"]), rec["size"], rec["params"])
-    source = "formula"
     if expected is None:
-        key = (rec["workload"], rec["size"], tuple(sorted(rec["params"].items())))
-        expected, source = consensus.setdefault(key, (rec["checksum"], rec["impl"]))
+        # Can't compute it here (cpu without numpy). Leave the run unverified; report.py accepts the checksum
+        # most implementations agree on and rejects the rest, instead of trusting whichever ran first.
+        rec["valid"] = None
+        return
     rec["expected_checksum"] = expected
     rec["valid"] = rec["checksum"] == expected
     if not rec["valid"]:
-        rec["reason"] = f"checksum {rec['checksum']} != {expected} (from {source})"
+        rec["reason"] = f"checksum {rec['checksum']} != {expected}"
         print(f"\n  !! {rec['impl']} {rec['workload']}: {rec['reason']}", file=sys.stderr)
 
 
 def progress_cell(impl: str, recs: list[dict], workload: str) -> str:
-    ok = [r for r in recs if r["phase"] == "measure" and r["status"] == "ok" and r["valid"]]
+    ok = [r for r in recs if r["phase"] == "measure" and r["status"] == "ok" and r["valid"] is not False]
     if not ok:
-        bad = next((r for r in recs if r["status"] != "ok" or not r["valid"]), None)
+        bad = next((r for r in recs if r["status"] != "ok" or r["valid"] is False), None)
         return f"{impl} {bad['status'] if bad else 'no data'}"
     if workload == "idle":
         return f"{impl} {report.fmt_bytes(statistics.median(r['bytes_per_task'] for r in ok))}/task"

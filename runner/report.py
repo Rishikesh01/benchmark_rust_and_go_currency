@@ -43,7 +43,30 @@ def build(out_dir: Path) -> None:
     (out_dir / "report.html").write_text(render_html(meta, summary))
 
 
+def resolve_unverified(rows: list[dict]) -> None:
+    """Settle runs the runner couldn't verify (cpu checksums without numpy) by majority across implementations.
+
+    The checksum reported by more than half of the implementations in a case is accepted; runs with any other
+    checksum are invalid. Without a majority, every run in the case is invalid.
+    """
+    cases: dict[tuple, list[dict]] = {}
+    for r in rows:
+        if r["status"] == "ok" and r.get("valid") is None:
+            cases.setdefault((r["workload"], r["size"], json.dumps(r.get("params"), sort_keys=True)), []).append(r)
+    for recs in cases.values():
+        impls_by_checksum: dict[int, set[str]] = {}
+        for r in recs:
+            impls_by_checksum.setdefault(r["checksum"], set()).add(r["impl"])
+        checksum, impls = max(impls_by_checksum.items(), key=lambda item: len(item[1]))
+        majority = len(impls) > len({r["impl"] for r in recs}) / 2
+        for r in recs:
+            r["valid"] = majority and r["checksum"] == checksum
+            if not r["valid"]:
+                r["reason"] = "checksum disagrees with the other implementations"
+
+
 def summarise(rows: list[dict], impl_order: list[str], reps: int) -> list[dict]:
+    resolve_unverified(rows)
     groups: dict[tuple, list[dict]] = {}
     for r in rows:
         groups.setdefault((r["workload"], r["size"], r["threads"], r["impl"]), []).append(r)
