@@ -114,6 +114,33 @@ numbers are lower than `tokio-tuned`'s.
 - Reported value: median with a distribution-free confidence interval. CPU time, context switches, background
   CPU load and CPU temperature are recorded for every run.
 
+## Compared with established practice
+
+Sources: crossbeam-channel [benchmarks](https://github.com/crossbeam-rs/crossbeam/tree/master/crossbeam-channel/benchmarks),
+the [kanal suite](https://github.com/fereidani/rust-channel-benchmarks), Tokio's
+[benches](https://github.com/tokio-rs/tokio/tree/master/benches), Go's
+[runtime/chan_test.go](https://github.com/golang/go/blob/master/src/runtime/chan_test.go) and
+[benchstat](https://pkg.go.dev/golang.org/x/perf/cmd/benchstat), [Savina](https://github.com/shamsimam/savina),
+[Georges et al. 2007](https://dri.es/files/oopsla07-georges.pdf),
+[pyperf](https://pyperf.readthedocs.io/en/latest/system.html), [wrk2](https://github.com/giltene/wrk2).
+
+| Practice | Here |
+|---|---|
+| Fresh process per measurement, interleaved/shuffled order | yes |
+| Thread-count sweep, CPU pinning | yes |
+| Received values and parameters checked | yes (checksums, echoed parameters) |
+| Warm-up inside the measured process (Criterion, kanal suite) | partly: `spawn` only; other runs are long enough |
+| Median with confidence interval, no winner when intervals overlap | yes |
+| CPU time and peak memory alongside throughput | yes |
+| Capacities 0 / 1 / N / unbounded | partly: 1 and 1024 (Tokio has no capacity 0) |
+| Several payload sizes (kanal, Tokio `sync_mpsc`) | no: `u64` only |
+| Work per message or outside the lock (Go `ChanProdConsWork`, `MutexWork`) | no: empty critical sections, which exaggerate hand-off and spinning effects |
+| 20 runs per cell (benchstat) | no: 10 |
+| `performance` governor, turbo/SMT off, isolated CPUs | partly: `performance` governor; turbo and SMT on, CPUs not isolated |
+| Open-loop latency with a latency histogram (wrk2/HdrHistogram) | no: ping-pong is closed-loop |
+| Scheduler cases such as chained spawn, yield, remote spawn (Tokio benches) | no |
+| Systematic concurrency testing (loom, shuttle, `go test -race`) | no |
+
 ## Caveats
 
 - Tuned Tokio uses third-party crates; Crossbeam and Go got no equivalent tuning.
@@ -123,7 +150,6 @@ numbers are lower than `tokio-tuned`'s.
 - Ping-pong is closed-loop: its latency is round-trip time at saturation, not latency under a given load.
 - CPU-heavy results depend on compiler code generation, and the laptop reached 84 °C during the run.
 - Idle memory is resident memory only; kernel structures for OS threads aren't counted.
-- Not covered: payloads larger than a `u64`, work inside or outside the lock, open-loop latency, and isolated CPUs.
 
 ## Running
 
