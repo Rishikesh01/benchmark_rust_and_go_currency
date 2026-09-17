@@ -271,6 +271,32 @@ ROW_LABELS = {
 }
 
 
+# Result tables, in order: (title, note, workloads). Channel tests are split by channel type so each table compares
+# like with like; the last section (None) takes every other workload.
+TABLE_SECTIONS = [
+    ("MPMC channels",
+     "Every implementation uses a bounded multi-producer, multi-consumer channel: async-channel (Tokio), "
+     "kanal (tuned Tokio), crossbeam-channel and Go `chan`.",
+     {"mpmc", "mpmc-cap1"}),
+    ("Single-receiver channels",
+     "One receiver per channel. Tokio uses its MPSC channel, `tokio::sync::mpsc` (so does tuned Tokio for select); "
+     "tuned Tokio otherwise uses kanal, and Crossbeam and Go use their MPMC channels with a single receiver.",
+     {"spsc", "spsc-cap1", "pingpong", "select", "select-cap1"}),
+    ("Tasks, CPU, locks and memory", "", None),
+]
+
+
+def sectioned(specs: list[tuple]) -> list[tuple[str, str, list[tuple]]]:
+    """Split table specs into TABLE_SECTIONS, dropping empty sections."""
+    named = set().union(*(w for _, _, w in TABLE_SECTIONS if w))
+    out = []
+    for title, note, workloads in TABLE_SECTIONS:
+        chosen = [spec for spec in specs if (spec[0] in workloads if workloads else spec[0] not in named)]
+        if chosen:
+            out.append((title, note, chosen))
+    return out
+
+
 def render_markdown(meta: dict, summary: list[dict]) -> str:
     impls = display_order(meta["impls"])
     specs = table_specs(summary)
@@ -296,19 +322,27 @@ def render_markdown(meta: dict, summary: list[dict]) -> str:
     if meta["warnings"]:
         out += ["", "⚠ Run conditions: " + " ".join(w.split(". Fix:")[0].rstrip(".") + "." for w in meta["warnings"])]
 
-    header = ["Test"] + [display_name(i) for i in impls] + ["Unit"]
-    out += ["", f"## At {top} threads", "", md_row(header), md_row(["---"] + ["---:"] * len(impls) + ["---"])]
-    for label, unit, key, fmt, lower_better, by_threads in specs:
-        if top in by_threads:
+    out += ["", f"## At {top} threads"]
+    for title, note, section in sectioned(specs):
+        rows = [spec for spec in section if top in spec[-1]]
+        if not rows:
+            continue
+        out += ["", f"### {title}", ""] + ([note, ""] if note else [])
+        out += [md_row(["Test"] + [display_name(i) for i in impls] + ["Unit"]),
+                md_row(["---"] + ["---:"] * len(impls) + ["---"])]
+        for _, label, unit, key, fmt, lower_better, by_threads in rows:
             out.append(md_row([label] + table_cells(impls, by_threads[top], key, fmt, lower_better) + [unit]))
 
     if len(threads) > 1:
-        header = ["Test", "Threads"] + [display_name(i) for i in impls] + ["Unit"]
-        out += ["", "## All thread counts", "", md_row(header), md_row(["---", "---:"] + ["---:"] * len(impls) + ["---"])]
-        for label, unit, key, fmt, lower_better, by_threads in specs:
-            for n, (t, rows) in enumerate(sorted(by_threads.items())):
-                cells = table_cells(impls, rows, key, fmt, lower_better)
-                out.append(md_row([label if n == 0 else "", str(t)] + cells + [unit if n == 0 else ""]))
+        out += ["", "## All thread counts"]
+        for title, _, section in sectioned(specs):
+            out += ["", f"### {title}", "",
+                    md_row(["Test", "Threads"] + [display_name(i) for i in impls] + ["Unit"]),
+                    md_row(["---", "---:"] + ["---:"] * len(impls) + ["---"])]
+            for _, label, unit, key, fmt, lower_better, by_threads in section:
+                for n, (t, rows) in enumerate(sorted(by_threads.items())):
+                    cells = table_cells(impls, rows, key, fmt, lower_better)
+                    out.append(md_row([label if n == 0 else "", str(t)] + cells + [unit if n == 0 else ""]))
 
     notes = {}
     for s in summary:
@@ -354,19 +388,19 @@ def display_name(impl: str) -> str:
 
 
 def table_specs(summary: list[dict]) -> list[tuple]:
-    """(label, unit, value key, formatter, lower is better, rows by thread count) for each table line."""
+    """(workload, label, unit, value key, formatter, lower is better, rows by thread count) for each table line."""
     specs = []
     for workload, by_size in grouped(summary).items():
         for size, by_threads in by_size.items():
             params = next(iter(by_threads.values()))[0]["params"]
             label = ROW_LABELS.get(workload, workload).format(size=fmt_count(size), **params)
             if workload == "idle":
-                specs.append((label, "bytes per task, lower is better", "bytes_per_task", fmt_bytes, True, by_threads))
+                specs.append((workload, label, "bytes per task, lower is better", "bytes_per_task", fmt_bytes, True, by_threads))
                 continue
-            specs.append((label, describe(workload, params)[2], "ops_median", fmt_si, False, by_threads))
+            specs.append((workload, label, describe(workload, params)[2], "ops_median", fmt_si, False, by_threads))
             if workload == "pingpong":
                 for key, pct in (("lat_p50_ns", "p50"), ("lat_p99_ns", "p99")):
-                    specs.append((f"Ping-pong latency {pct}", "per round trip, lower is better", key, fmt_ns, True, by_threads))
+                    specs.append((workload, f"Ping-pong latency {pct}", "per round trip, lower is better", key, fmt_ns, True, by_threads))
     return specs
 
 

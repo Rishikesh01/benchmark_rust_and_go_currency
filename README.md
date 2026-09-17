@@ -15,20 +15,38 @@ AMD Ryzen 5 5625U laptop (6 cores / 12 threads), `performance` governor, on AC p
 thread count, confidence intervals, CPU time and p99.9 latency: [`summary.md`](results/full-20260917-103559/summary.md),
 [`summary.csv`](results/full-20260917-103559/summary.csv).
 
+### MPMC channels
+
+Every implementation uses a bounded multi-producer, multi-consumer channel: async-channel (Tokio), kanal (tuned
+Tokio), crossbeam-channel and Go `chan`.
+
+| Test | Tokio | Tuned Tokio | Crossbeam | Go | Unit |
+|---|---:|---:|---:|---:|---|
+| 4 senders → 4 receivers, capacity 1024 | 9.78M | **81.1M** | 26.5M | 18.7M | messages/s |
+| 4 senders → 4 receivers, capacity 1 | 2.08M | **19.2M** | 5.14M | 6.62M | messages/s |
+
+### Single-receiver channels
+
+One receiver per channel. Tokio uses its MPSC channel, `tokio::sync::mpsc` (so does tuned Tokio for select); tuned
+Tokio otherwise uses kanal, and Crossbeam and Go use their MPMC channels with a single receiver.
+
 | Test | Tokio | Tuned Tokio | Crossbeam | Go | Unit |
 |---|---:|---:|---:|---:|---|
 | 1 sender → 1 receiver, capacity 1024 | 13.1M | **135M** | 37.1M | 29.3M | messages/s |
 | 1 sender → 1 receiver, capacity 1 | 4.91M | **19.7M** | 7.10M | 10.5M | messages/s |
-| 4 senders → 4 receivers, capacity 1024 | 9.78M | **81.1M** | 26.5M | 18.7M | messages/s |
-| 4 senders → 4 receivers, capacity 1 | 2.08M | **19.2M** | 5.14M | 6.62M | messages/s |
 | Ping-pong | 4.31M | **7.04M** | 3.86M | 3.91M | round trips/s |
 | Ping-pong latency p50 | 140 ns | **90 ns** | 280 ns | 250 ns | lower is better |
 | Ping-pong latency p99 | 2.18 µs | 2.17 µs | **341 ns** | 516 ns | lower is better |
+| Select over 2 channels, capacity 1024 | 20.0M | **36.9M** | 13.3M | 13.8M | messages/s |
+| Select over 2 channels, capacity 1 | 5.43M | 4.91M | 5.77M | **7.09M** | messages/s |
+
+### Tasks, CPU, locks and memory
+
+| Test | Tokio | Tuned Tokio | Crossbeam | Go | Unit |
+|---|---:|---:|---:|---:|---|
 | Spawn and join, 10K tasks | 3.87M | 5.87M | 28.2K | 5.32M | tasks/s |
 | Spawn and join, 1M tasks | 3.56M | 5.31M | — | **5.59M** | tasks/s |
 | CPU-heavy hashing | 99.0M | 99.1M | 99.7M | 90.7M | items/s |
-| Select over 2 channels, capacity 1024 | 20.0M | **36.9M** | 13.3M | 13.8M | messages/s |
-| Select over 2 channels, capacity 1 | 5.43M | 4.91M | 5.77M | **7.09M** | messages/s |
 | Lock contention, 8 workers | 8.98M | **74.8M** | 29.4M | 25.8M | increments/s |
 | Memory per idle task, 10K tasks | 408 B | **261 B** | 9.92 KiB | 2.79 KiB | lower is better |
 | Memory per idle task, 1M tasks | 385 B | **258 B** | — | 2.69 KiB | lower is better |
