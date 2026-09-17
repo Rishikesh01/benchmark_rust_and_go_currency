@@ -166,7 +166,7 @@ footer ul { padding-left: 18px; max-width: 80ch; }
   <div id="warnings"></div>
   <div class="card">
     <h3>At the highest thread count measured</h3>
-    <p class="card-sub">Median per implementation; bold is best in the row.</p>
+    <p class="card-sub">Median per implementation; bold marks a clear best (confidence intervals don't overlap).</p>
     <div class="table-wrap" id="overview"></div>
   </div>
   <nav class="toc" id="toc" aria-label="Tests"></nav>
@@ -181,12 +181,32 @@ footer ul { padding-left: 18px; max-width: 80ch; }
 </main>
 <div class="tooltip" id="tooltip" role="status" hidden></div>
 <script>
-const DATA = {"meta": {"profile": "full", "started_at": "2026-09-16T23:02:45+05:30", "workloads": ["spsc", "mpmc", "pingpong", "select", "mutex"], "impls": ["tokio", "tokio+kanal+batch", "tokio+mimalloc+kanal+batch", "tokio+mimalloc+kanal", "tokio+mimalloc+batch", "tokio+mimalloc+parking-lot", "tokio+parking-lot"], "threads": [1, 2, 12], "sizes": {"spsc": [10000000], "mpmc": [10000000], "pingpong": [1000000], "select": [10000000], "mutex": [10000000]}, "params": {"spsc": {"capacity": 1024}, "mpmc": {"capacity": 1024, "producers": 4, "consumers": 4}, "pingpong": {"sample-every": 16}, "select": {"capacity": 1024}, "mutex": {"workers": 8}}, "warmup": 1, "reps": 3, "seed": 3772941740, "cpu_order": [0, 2, 4, 6, 8, 10, 1, 3, 5, 7, 9, 11], "cpu_model": "AMD Ryzen 5 5625U with Radeon Graphics", "logical_cpus": 12, "kernel": "6.8.0-11-generic", "governors": ["powersave"], "energy_performance_preference": ["balance_performance"], "on_ac_power": null, "load_avg_1m": 3.18, "mem_total_kb": 23392964, "mem_available_kb": 13275016, "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)", "go": "go version go1.27.0 linux/amd64", "crates": {"async-channel": "2.5.0", "crossbeam": "0.8.5", "crossbeam-channel": "0.5.17", "crossbeam-deque": "0.8.8", "parking_lot": "0.12.5", "tokio": "1.53.1"}, "variant_help": {"mimalloc": "mimalloc global allocator", "batch": "receive up to 256 queued messages per wake-up", "kanal": "kanal async channels instead of tokio/async-channel", "parking-lot": "parking_lot::Mutex, never held across .await"}, "tuned": null, "warnings": ["CPU governor is 'powersave', not 'performance', so frequency scaling adds noise. Fix: echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor", "1-minute load average was 3.18 at start; other programs compete for CPU."]}, "impls": ["tokio", "tokio+kanal+batch", "tokio+mimalloc+kanal+batch", "tokio+mimalloc+kanal", "tokio+mimalloc+batch", "tokio+mimalloc+parking-lot", "tokio+parking-lot"], "cvWarn": 5.0, "sections": [{"workload": "spsc", "title": "One sender, one receiver", "blurb": "Raw message rate through a bounded channel of capacity 1024.", "unit": "messages/s", "sizes": [{"size": 10000000, "points": [{"threads": 1, "impl": "tokio", "status": "ok", "reason": null, "runs": 3, "ops_median": 25271331.8, "ops_min": 25122253.2, "ops_max": 25711807.3, "cv_pct": 1.2083683305926882, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "tokio+kanal+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 92483311.6, "ops_min": 85716897.4, "ops_max": 94329634.4, "cv_pct": 4.99161129720338, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["kanal", "batch"]}, {"threads": 1, "impl": "tokio+mimalloc+kanal+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 92637127.9, "ops_min": 85051690.0, "ops_max": 93845863.3, "cv_pct": 5.266569455637611, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["kanal", "batch"]}, {"threads": 1, "impl": "tokio+mimalloc+kanal", "status": "ok", "reason": null, "runs": 3, "ops_median": 70768555.6, "ops_min": 70098412.0, "ops_max": 71970712.9, "cv_pct": 1.3371660990073317, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["kanal"]}, {"threads": 1, "impl": "tokio+mimalloc+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 32431512.2, "ops_min": 32145967.5, "ops_max": 32651566.1, "cv_pct": 0.7821898409484968, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["batch"]}, {"threads": 2, "impl": "tokio", "status": "ok", "reason": null, "runs": 3, "ops_median": 12734959.6, "ops_min": 12530292.1, "ops_max": 12891489.6, "cv_pct": 1.4241198524631848, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "tokio+kanal+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 77582669.9, "ops_min": 73123454.0, "ops_max": 78793763.9, "cv_pct": 3.9035104120659665, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["kanal", "batch"]}, {"threads": 2, "impl": "tokio+mimalloc+kanal+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 69241663.5, "ops_min": 67103771.7, "ops_max": 73146191.3, "cv_pct": 4.387693882732203, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["kanal", "batch"]}, {"threads": 2, "impl": "tokio+mimalloc+kanal", "status": "ok", "reason": null, "runs": 3, "ops_median": 30211154.7, "ops_min": 29952968.3, "ops_max": 30291214.8, "cv_pct": 0.5862589930935228, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["kanal"]}, {"threads": 2, "impl": "tokio+mimalloc+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 25499433.4, "ops_min": 25482825.3, "ops_max": 26193716.3, "cv_pct": 1.5771375255782885, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["batch"]}, {"threads": 12, "impl": "tokio", "status": "ok", "reason": null, "runs": 3, "ops_median": 12461757.6, "ops_min": 12222997.5, "ops_max": 12647785.2, "cv_pct": 1.7111505987380422, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "tokio+kanal+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 74768750.0, "ops_min": 74002512.5, "ops_max": 75604597.9, "cv_pct": 1.0713648596042074, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["kanal", "batch"]}, {"threads": 12, "impl": "tokio+mimalloc+kanal+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 76061516.4, "ops_min": 71794892.6, "ops_max": 77288817.7, "cv_pct": 3.8424226402720327, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["kanal", "batch"]}, {"threads": 12, "impl": "tokio+mimalloc+kanal", "status": "ok", "reason": null, "runs": 3, "ops_median": 36434570.9, "ops_min": 35105176.3, "ops_max": 36842562.5, "cv_pct": 2.514715489405986, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["kanal"]}, {"threads": 12, "impl": "tokio+mimalloc+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 24123278.1, "ops_min": 23815248.8, "ops_max": 24340662.5, "cv_pct": 1.0957793590637612, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["batch"]}]}]}, {"workload": "mpmc", "title": "Many senders, many receivers", "blurb": "4 senders and 4 receivers sharing one bounded channel of capacity 1024.", "unit": "messages/s", "sizes": [{"size": 10000000, "points": [{"threads": 1, "impl": "tokio", "status": "ok", "reason": null, "runs": 3, "ops_median": 33959173.9, "ops_min": 33107860.9, "ops_max": 34316738.3, "cv_pct": 1.8376216830019523, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "tokio+kanal+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 86261193.5, "ops_min": 85074866.2, "ops_max": 87275012.5, "cv_pct": 1.2774392000571617, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["kanal", "batch"]}, {"threads": 1, "impl": "tokio+mimalloc+kanal+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 85233857.3, "ops_min": 84699706.2, "ops_max": 86964462.7, "cv_pct": 1.3825099222807542, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["kanal", "batch"]}, {"threads": 1, "impl": "tokio+mimalloc+kanal", "status": "ok", "reason": null, "runs": 3, "ops_median": 62436271.3, "ops_min": 59206938.6, "ops_max": 64822435.1, "cv_pct": 4.534259402064878, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["kanal"]}, {"threads": 1, "impl": "tokio+mimalloc+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 34887758.7, "ops_min": 32675734.4, "ops_max": 37005069.9, "cv_pct": 6.210777937348693, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["batch"]}, {"threads": 2, "impl": "tokio", "status": "ok", "reason": null, "runs": 3, "ops_median": 19168640.7, "ops_min": 17889783.3, "ops_max": 19968525.3, "cv_pct": 5.515958047501108, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "tokio+kanal+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 74304418.3, "ops_min": 71300779.6, "ops_max": 76145416.1, "cv_pct": 3.3083909700456724, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["kanal", "batch"]}, {"threads": 2, "impl": "tokio+mimalloc+kanal+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 61955920.5, "ops_min": 59579354.1, "ops_max": 65690336.6, "cv_pct": 4.936073565802158, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["kanal", "batch"]}, {"threads": 2, "impl": "tokio+mimalloc+kanal", "status": "ok", "reason": null, "runs": 3, "ops_median": 38211679.5, "ops_min": 35434257.1, "ops_max": 44432037.8, "cv_pct": 11.705909928523264, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["kanal"]}, {"threads": 2, "impl": "tokio+mimalloc+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 16936667.3, "ops_min": 12905040.1, "ops_max": 17735945.9, "cv_pct": 16.327526915514103, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["batch"]}, {"threads": 12, "impl": "tokio", "status": "ok", "reason": null, "runs": 3, "ops_median": 9411005.0, "ops_min": 9259338.1, "ops_max": 10099506.7, "cv_pct": 4.66902863022507, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "tokio+kanal+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 49884963.5, "ops_min": 49440895.9, "ops_max": 54015429.8, "cv_pct": 4.935475304596565, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["kanal", "batch"]}, {"threads": 12, "impl": "tokio+mimalloc+kanal+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 46170412.5, "ops_min": 38837452.6, "ops_max": 51632236.7, "cv_pct": 14.09576258821446, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["kanal", "batch"]}, {"threads": 12, "impl": "tokio+mimalloc+kanal", "status": "ok", "reason": null, "runs": 3, "ops_median": 28205346.9, "ops_min": 27808267.1, "ops_max": 29592674.7, "cv_pct": 3.283215638002902, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["kanal"]}, {"threads": 12, "impl": "tokio+mimalloc+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 8184505.6, "ops_min": 7862952.7, "ops_max": 9933653.7, "cv_pct": 12.867286080959566, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["batch"]}]}]}, {"workload": "pingpong", "title": "Ping-pong", "blurb": "Two tasks pass one token back and forth over capacity-1 channels; measures wake-up cost.", "unit": "round trips/s", "sizes": [{"size": 1000000, "points": [{"threads": 1, "impl": "tokio", "status": "ok", "reason": null, "runs": 3, "ops_median": 6420748.5, "ops_min": 6402583.6, "ops_max": 6765721.4, "cv_pct": 3.133621942730359, "lat_p50_ns": 221, "lat_p99_ns": 461, "lat_p999_ns": 932, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "tokio+mimalloc+kanal", "status": "ok", "reason": null, "runs": 3, "ops_median": 10068273.7, "ops_min": 9625912.4, "ops_max": 10223665.4, "cv_pct": 3.109963874579901, "lat_p50_ns": 120, "lat_p99_ns": 350, "lat_p999_ns": 381, "bytes_per_task": null, "variants": ["kanal"]}, {"threads": 2, "impl": "tokio", "status": "ok", "reason": null, "runs": 3, "ops_median": 3997047.2, "ops_min": 3887951.2, "ops_max": 4005078.8, "cv_pct": 1.650834106026253, "lat_p50_ns": 200, "lat_p99_ns": 2344, "lat_p999_ns": 3086, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "tokio+mimalloc+kanal", "status": "ok", "reason": null, "runs": 3, "ops_median": 5657020.9, "ops_min": 5281111.8, "ops_max": 5829677.8, "cv_pct": 5.018338140895098, "lat_p50_ns": 110, "lat_p99_ns": 2314, "lat_p999_ns": 2915, "bytes_per_task": null, "variants": ["kanal"]}, {"threads": 12, "impl": "tokio", "status": "ok", "reason": null, "runs": 3, "ops_median": 4106388.4, "ops_min": 4081088.3, "ops_max": 4186601.1, "cv_pct": 1.335529401850116, "lat_p50_ns": 190, "lat_p99_ns": 2244, "lat_p999_ns": 2655, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "tokio+mimalloc+kanal", "status": "ok", "reason": null, "runs": 3, "ops_median": 5799939.8, "ops_min": 5402326.2, "ops_max": 6330676.2, "cv_pct": 7.9695078769878025, "lat_p50_ns": 101, "lat_p99_ns": 2204, "lat_p999_ns": 2655, "bytes_per_task": null, "variants": ["kanal"]}]}]}, {"workload": "select", "title": "Select", "blurb": "One consumer waits on two channels of capacity 1024 at once until both close.", "unit": "messages/s", "sizes": [{"size": 10000000, "points": [{"threads": 1, "impl": "tokio", "status": "ok", "reason": null, "runs": 3, "ops_median": 20781381.5, "ops_min": 19641318.1, "ops_max": 21308433.5, "cv_pct": 4.141191354577081, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "tokio+mimalloc+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 33304164.7, "ops_min": 32309441.6, "ops_max": 33399459.3, "cv_pct": 1.8291406377758792, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["batch"]}, {"threads": 2, "impl": "tokio", "status": "ok", "reason": null, "runs": 3, "ops_median": 19846055.7, "ops_min": 19733991.5, "ops_max": 19873246.5, "cv_pct": 0.3724560573775175, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "tokio+mimalloc+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 28571567.4, "ops_min": 28491601.0, "ops_max": 28897530.6, "cv_pct": 0.7504449834436503, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["batch"]}, {"threads": 12, "impl": "tokio", "status": "ok", "reason": null, "runs": 3, "ops_median": 19353999.9, "ops_min": 18614372.7, "ops_max": 20002459.3, "cv_pct": 3.594266704280812, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "tokio+mimalloc+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 36765357.5, "ops_min": 34070045.4, "ops_max": 37415298.1, "cv_pct": 4.915765173710115, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["batch"]}]}]}, {"workload": "mutex", "title": "Lock contention", "blurb": "8 workers increment one shared counter under a mutex.", "unit": "increments/s", "sizes": [{"size": 10000000, "points": [{"threads": 1, "impl": "tokio", "status": "ok", "reason": null, "runs": 3, "ops_median": 48949507.6, "ops_min": 48877630.3, "ops_max": 49257184.7, "cv_pct": 0.4112245082106939, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 1, "impl": "tokio+mimalloc+parking-lot", "status": "ok", "reason": null, "runs": 3, "ops_median": 229638330.9, "ops_min": 229173497.5, "ops_max": 232723389.4, "cv_pct": 0.8370050592487662, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["parking-lot"]}, {"threads": 1, "impl": "tokio+parking-lot", "status": "ok", "reason": null, "runs": 3, "ops_median": 227776351.1, "ops_min": 225352681.5, "ops_max": 228359281.5, "cv_pct": 0.7018976035621194, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["parking-lot"]}, {"threads": 2, "impl": "tokio", "status": "ok", "reason": null, "runs": 3, "ops_median": 8714766.0, "ops_min": 8681668.0, "ops_max": 8895758.9, "cv_pct": 1.3149750723469786, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 2, "impl": "tokio+mimalloc+parking-lot", "status": "ok", "reason": null, "runs": 3, "ops_median": 147886894.4, "ops_min": 146497147.0, "ops_max": 154779117.1, "cv_pct": 2.962298385858497, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["parking-lot"]}, {"threads": 2, "impl": "tokio+parking-lot", "status": "ok", "reason": null, "runs": 3, "ops_median": 140669890.8, "ops_min": 138788670.0, "ops_max": 156674993.2, "cv_pct": 6.760812300571531, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["parking-lot"]}, {"threads": 12, "impl": "tokio", "status": "ok", "reason": null, "runs": 3, "ops_median": 8298667.1, "ops_min": 8126806.6, "ops_max": 8758860.4, "cv_pct": 3.8929462902563343, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": []}, {"threads": 12, "impl": "tokio+mimalloc+parking-lot", "status": "ok", "reason": null, "runs": 3, "ops_median": 79473975.1, "ops_min": 72041630.3, "ops_max": 85927731.4, "cv_pct": 8.779520074218684, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["parking-lot"]}, {"threads": 12, "impl": "tokio+parking-lot", "status": "ok", "reason": null, "runs": 3, "ops_median": 86765967.8, "ops_min": 82039482.5, "ops_max": 89629950.9, "cv_pct": 4.449617699869755, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "variants": ["parking-lot"]}]}]}]};
+const DATA = {"meta": {"profile": "full", "started_at": "2026-09-16T23:02:45+05:30", "workloads": ["spsc", "mpmc", "pingpong", "select", "mutex"], "impls": ["tokio", "tokio+kanal+batch", "tokio+mimalloc+kanal+batch", "tokio+mimalloc+kanal", "tokio+mimalloc+batch", "tokio+mimalloc+parking-lot", "tokio+parking-lot"], "threads": [1, 2, 12], "sizes": {"spsc": [10000000], "mpmc": [10000000], "pingpong": [1000000], "select": [10000000], "mutex": [10000000]}, "params": {"spsc": {"capacity": 1024}, "mpmc": {"capacity": 1024, "producers": 4, "consumers": 4}, "pingpong": {"sample-every": 16}, "select": {"capacity": 1024}, "mutex": {"workers": 8}}, "warmup": 1, "reps": 3, "seed": 3772941740, "cpu_order": [0, 2, 4, 6, 8, 10, 1, 3, 5, 7, 9, 11], "cpu_model": "AMD Ryzen 5 5625U with Radeon Graphics", "logical_cpus": 12, "kernel": "6.8.0-11-generic", "governors": ["powersave"], "energy_performance_preference": ["balance_performance"], "on_ac_power": null, "load_avg_1m": 3.18, "mem_total_kb": 23392964, "mem_available_kb": 13275016, "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)", "go": "go version go1.27.0 linux/amd64", "crates": {"async-channel": "2.5.0", "crossbeam": "0.8.5", "crossbeam-channel": "0.5.17", "crossbeam-deque": "0.8.8", "parking_lot": "0.12.5", "tokio": "1.53.1"}, "variant_help": {"mimalloc": "mimalloc global allocator", "batch": "receive up to 256 queued messages per wake-up", "kanal": "kanal async channels instead of tokio/async-channel", "parking-lot": "parking_lot::Mutex, never held across .await"}, "tuned": null, "warnings": ["CPU governor is 'powersave', not 'performance', so frequency scaling adds noise. Fix: echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor", "1-minute load average was 3.18 at start; other programs compete for CPU."]}, "impls": ["tokio", "tokio+kanal+batch", "tokio+mimalloc+kanal+batch", "tokio+mimalloc+kanal", "tokio+mimalloc+batch", "tokio+mimalloc+parking-lot", "tokio+parking-lot"], "cvWarn": 5.0, "sections": [{"workload": "spsc", "title": "One sender, one receiver", "blurb": "Raw message rate through a bounded channel of capacity 1024.", "unit": "messages/s", "sizes": [{"size": 10000000, "points": [{"threads": 1, "impl": "tokio", "status": "ok", "reason": null, "runs": 3, "ops_median": 25271331.8, "ops_min": 25122253.2, "ops_max": 25711807.3, "cv_pct": 1.2083683305926882, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [25122253.2, 25711807.3, 0.75], "bytes_ci": null, "variants": []}, {"threads": 1, "impl": "tokio+kanal+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 92483311.6, "ops_min": 85716897.4, "ops_max": 94329634.4, "cv_pct": 4.99161129720338, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [85716897.4, 94329634.4, 0.75], "bytes_ci": null, "variants": ["kanal", "batch"]}, {"threads": 1, "impl": "tokio+mimalloc+kanal+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 92637127.9, "ops_min": 85051690.0, "ops_max": 93845863.3, "cv_pct": 5.266569455637611, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [85051690.0, 93845863.3, 0.75], "bytes_ci": null, "variants": ["kanal", "batch"]}, {"threads": 1, "impl": "tokio+mimalloc+kanal", "status": "ok", "reason": null, "runs": 3, "ops_median": 70768555.6, "ops_min": 70098412.0, "ops_max": 71970712.9, "cv_pct": 1.3371660990073317, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [70098412.0, 71970712.9, 0.75], "bytes_ci": null, "variants": ["kanal"]}, {"threads": 1, "impl": "tokio+mimalloc+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 32431512.2, "ops_min": 32145967.5, "ops_max": 32651566.1, "cv_pct": 0.7821898409484968, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [32145967.5, 32651566.1, 0.75], "bytes_ci": null, "variants": ["batch"]}, {"threads": 2, "impl": "tokio", "status": "ok", "reason": null, "runs": 3, "ops_median": 12734959.6, "ops_min": 12530292.1, "ops_max": 12891489.6, "cv_pct": 1.4241198524631848, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [12530292.1, 12891489.6, 0.75], "bytes_ci": null, "variants": []}, {"threads": 2, "impl": "tokio+kanal+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 77582669.9, "ops_min": 73123454.0, "ops_max": 78793763.9, "cv_pct": 3.9035104120659665, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [73123454.0, 78793763.9, 0.75], "bytes_ci": null, "variants": ["kanal", "batch"]}, {"threads": 2, "impl": "tokio+mimalloc+kanal+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 69241663.5, "ops_min": 67103771.7, "ops_max": 73146191.3, "cv_pct": 4.387693882732203, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [67103771.7, 73146191.3, 0.75], "bytes_ci": null, "variants": ["kanal", "batch"]}, {"threads": 2, "impl": "tokio+mimalloc+kanal", "status": "ok", "reason": null, "runs": 3, "ops_median": 30211154.7, "ops_min": 29952968.3, "ops_max": 30291214.8, "cv_pct": 0.5862589930935228, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [29952968.3, 30291214.8, 0.75], "bytes_ci": null, "variants": ["kanal"]}, {"threads": 2, "impl": "tokio+mimalloc+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 25499433.4, "ops_min": 25482825.3, "ops_max": 26193716.3, "cv_pct": 1.5771375255782885, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [25482825.3, 26193716.3, 0.75], "bytes_ci": null, "variants": ["batch"]}, {"threads": 12, "impl": "tokio", "status": "ok", "reason": null, "runs": 3, "ops_median": 12461757.6, "ops_min": 12222997.5, "ops_max": 12647785.2, "cv_pct": 1.7111505987380422, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [12222997.5, 12647785.2, 0.75], "bytes_ci": null, "variants": []}, {"threads": 12, "impl": "tokio+kanal+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 74768750.0, "ops_min": 74002512.5, "ops_max": 75604597.9, "cv_pct": 1.0713648596042074, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [74002512.5, 75604597.9, 0.75], "bytes_ci": null, "variants": ["kanal", "batch"]}, {"threads": 12, "impl": "tokio+mimalloc+kanal+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 76061516.4, "ops_min": 71794892.6, "ops_max": 77288817.7, "cv_pct": 3.8424226402720327, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [71794892.6, 77288817.7, 0.75], "bytes_ci": null, "variants": ["kanal", "batch"]}, {"threads": 12, "impl": "tokio+mimalloc+kanal", "status": "ok", "reason": null, "runs": 3, "ops_median": 36434570.9, "ops_min": 35105176.3, "ops_max": 36842562.5, "cv_pct": 2.514715489405986, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [35105176.3, 36842562.5, 0.75], "bytes_ci": null, "variants": ["kanal"]}, {"threads": 12, "impl": "tokio+mimalloc+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 24123278.1, "ops_min": 23815248.8, "ops_max": 24340662.5, "cv_pct": 1.0957793590637612, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [23815248.8, 24340662.5, 0.75], "bytes_ci": null, "variants": ["batch"]}]}]}, {"workload": "mpmc", "title": "Many senders, many receivers", "blurb": "4 senders and 4 receivers sharing one bounded channel of capacity 1024.", "unit": "messages/s", "sizes": [{"size": 10000000, "points": [{"threads": 1, "impl": "tokio", "status": "ok", "reason": null, "runs": 3, "ops_median": 33959173.9, "ops_min": 33107860.9, "ops_max": 34316738.3, "cv_pct": 1.8376216830019523, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [33107860.9, 34316738.3, 0.75], "bytes_ci": null, "variants": []}, {"threads": 1, "impl": "tokio+kanal+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 86261193.5, "ops_min": 85074866.2, "ops_max": 87275012.5, "cv_pct": 1.2774392000571617, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [85074866.2, 87275012.5, 0.75], "bytes_ci": null, "variants": ["kanal", "batch"]}, {"threads": 1, "impl": "tokio+mimalloc+kanal+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 85233857.3, "ops_min": 84699706.2, "ops_max": 86964462.7, "cv_pct": 1.3825099222807542, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [84699706.2, 86964462.7, 0.75], "bytes_ci": null, "variants": ["kanal", "batch"]}, {"threads": 1, "impl": "tokio+mimalloc+kanal", "status": "ok", "reason": null, "runs": 3, "ops_median": 62436271.3, "ops_min": 59206938.6, "ops_max": 64822435.1, "cv_pct": 4.534259402064878, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [59206938.6, 64822435.1, 0.75], "bytes_ci": null, "variants": ["kanal"]}, {"threads": 1, "impl": "tokio+mimalloc+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 34887758.7, "ops_min": 32675734.4, "ops_max": 37005069.9, "cv_pct": 6.210777937348693, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [32675734.4, 37005069.9, 0.75], "bytes_ci": null, "variants": ["batch"]}, {"threads": 2, "impl": "tokio", "status": "ok", "reason": null, "runs": 3, "ops_median": 19168640.7, "ops_min": 17889783.3, "ops_max": 19968525.3, "cv_pct": 5.515958047501108, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [17889783.3, 19968525.3, 0.75], "bytes_ci": null, "variants": []}, {"threads": 2, "impl": "tokio+kanal+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 74304418.3, "ops_min": 71300779.6, "ops_max": 76145416.1, "cv_pct": 3.3083909700456724, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [71300779.6, 76145416.1, 0.75], "bytes_ci": null, "variants": ["kanal", "batch"]}, {"threads": 2, "impl": "tokio+mimalloc+kanal+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 61955920.5, "ops_min": 59579354.1, "ops_max": 65690336.6, "cv_pct": 4.936073565802158, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [59579354.1, 65690336.6, 0.75], "bytes_ci": null, "variants": ["kanal", "batch"]}, {"threads": 2, "impl": "tokio+mimalloc+kanal", "status": "ok", "reason": null, "runs": 3, "ops_median": 38211679.5, "ops_min": 35434257.1, "ops_max": 44432037.8, "cv_pct": 11.705909928523264, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [35434257.1, 44432037.8, 0.75], "bytes_ci": null, "variants": ["kanal"]}, {"threads": 2, "impl": "tokio+mimalloc+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 16936667.3, "ops_min": 12905040.1, "ops_max": 17735945.9, "cv_pct": 16.327526915514103, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [12905040.1, 17735945.9, 0.75], "bytes_ci": null, "variants": ["batch"]}, {"threads": 12, "impl": "tokio", "status": "ok", "reason": null, "runs": 3, "ops_median": 9411005.0, "ops_min": 9259338.1, "ops_max": 10099506.7, "cv_pct": 4.66902863022507, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [9259338.1, 10099506.7, 0.75], "bytes_ci": null, "variants": []}, {"threads": 12, "impl": "tokio+kanal+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 49884963.5, "ops_min": 49440895.9, "ops_max": 54015429.8, "cv_pct": 4.935475304596565, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [49440895.9, 54015429.8, 0.75], "bytes_ci": null, "variants": ["kanal", "batch"]}, {"threads": 12, "impl": "tokio+mimalloc+kanal+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 46170412.5, "ops_min": 38837452.6, "ops_max": 51632236.7, "cv_pct": 14.09576258821446, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [38837452.6, 51632236.7, 0.75], "bytes_ci": null, "variants": ["kanal", "batch"]}, {"threads": 12, "impl": "tokio+mimalloc+kanal", "status": "ok", "reason": null, "runs": 3, "ops_median": 28205346.9, "ops_min": 27808267.1, "ops_max": 29592674.7, "cv_pct": 3.283215638002902, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [27808267.1, 29592674.7, 0.75], "bytes_ci": null, "variants": ["kanal"]}, {"threads": 12, "impl": "tokio+mimalloc+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 8184505.6, "ops_min": 7862952.7, "ops_max": 9933653.7, "cv_pct": 12.867286080959566, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [7862952.7, 9933653.7, 0.75], "bytes_ci": null, "variants": ["batch"]}]}]}, {"workload": "pingpong", "title": "Ping-pong", "blurb": "Two tasks pass one token back and forth over capacity-1 channels; measures wake-up cost.", "unit": "round trips/s", "sizes": [{"size": 1000000, "points": [{"threads": 1, "impl": "tokio", "status": "ok", "reason": null, "runs": 3, "ops_median": 6420748.5, "ops_min": 6402583.6, "ops_max": 6765721.4, "cv_pct": 3.133621942730359, "lat_p50_ns": 221, "lat_p99_ns": 461, "lat_p999_ns": 932, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [6402583.6, 6765721.4, 0.75], "bytes_ci": null, "variants": []}, {"threads": 1, "impl": "tokio+mimalloc+kanal", "status": "ok", "reason": null, "runs": 3, "ops_median": 10068273.7, "ops_min": 9625912.4, "ops_max": 10223665.4, "cv_pct": 3.109963874579901, "lat_p50_ns": 120, "lat_p99_ns": 350, "lat_p999_ns": 381, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [9625912.4, 10223665.4, 0.75], "bytes_ci": null, "variants": ["kanal"]}, {"threads": 2, "impl": "tokio", "status": "ok", "reason": null, "runs": 3, "ops_median": 3997047.2, "ops_min": 3887951.2, "ops_max": 4005078.8, "cv_pct": 1.650834106026253, "lat_p50_ns": 200, "lat_p99_ns": 2344, "lat_p999_ns": 3086, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [3887951.2, 4005078.8, 0.75], "bytes_ci": null, "variants": []}, {"threads": 2, "impl": "tokio+mimalloc+kanal", "status": "ok", "reason": null, "runs": 3, "ops_median": 5657020.9, "ops_min": 5281111.8, "ops_max": 5829677.8, "cv_pct": 5.018338140895098, "lat_p50_ns": 110, "lat_p99_ns": 2314, "lat_p999_ns": 2915, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [5281111.8, 5829677.8, 0.75], "bytes_ci": null, "variants": ["kanal"]}, {"threads": 12, "impl": "tokio", "status": "ok", "reason": null, "runs": 3, "ops_median": 4106388.4, "ops_min": 4081088.3, "ops_max": 4186601.1, "cv_pct": 1.335529401850116, "lat_p50_ns": 190, "lat_p99_ns": 2244, "lat_p999_ns": 2655, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [4081088.3, 4186601.1, 0.75], "bytes_ci": null, "variants": []}, {"threads": 12, "impl": "tokio+mimalloc+kanal", "status": "ok", "reason": null, "runs": 3, "ops_median": 5799939.8, "ops_min": 5402326.2, "ops_max": 6330676.2, "cv_pct": 7.9695078769878025, "lat_p50_ns": 101, "lat_p99_ns": 2204, "lat_p999_ns": 2655, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [5402326.2, 6330676.2, 0.75], "bytes_ci": null, "variants": ["kanal"]}]}]}, {"workload": "select", "title": "Select", "blurb": "One consumer waits on two channels of capacity 1024 at once until both close.", "unit": "messages/s", "sizes": [{"size": 10000000, "points": [{"threads": 1, "impl": "tokio", "status": "ok", "reason": null, "runs": 3, "ops_median": 20781381.5, "ops_min": 19641318.1, "ops_max": 21308433.5, "cv_pct": 4.141191354577081, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [19641318.1, 21308433.5, 0.75], "bytes_ci": null, "variants": []}, {"threads": 1, "impl": "tokio+mimalloc+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 33304164.7, "ops_min": 32309441.6, "ops_max": 33399459.3, "cv_pct": 1.8291406377758792, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [32309441.6, 33399459.3, 0.75], "bytes_ci": null, "variants": ["batch"]}, {"threads": 2, "impl": "tokio", "status": "ok", "reason": null, "runs": 3, "ops_median": 19846055.7, "ops_min": 19733991.5, "ops_max": 19873246.5, "cv_pct": 0.3724560573775175, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [19733991.5, 19873246.5, 0.75], "bytes_ci": null, "variants": []}, {"threads": 2, "impl": "tokio+mimalloc+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 28571567.4, "ops_min": 28491601.0, "ops_max": 28897530.6, "cv_pct": 0.7504449834436503, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [28491601.0, 28897530.6, 0.75], "bytes_ci": null, "variants": ["batch"]}, {"threads": 12, "impl": "tokio", "status": "ok", "reason": null, "runs": 3, "ops_median": 19353999.9, "ops_min": 18614372.7, "ops_max": 20002459.3, "cv_pct": 3.594266704280812, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [18614372.7, 20002459.3, 0.75], "bytes_ci": null, "variants": []}, {"threads": 12, "impl": "tokio+mimalloc+batch", "status": "ok", "reason": null, "runs": 3, "ops_median": 36765357.5, "ops_min": 34070045.4, "ops_max": 37415298.1, "cv_pct": 4.915765173710115, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [34070045.4, 37415298.1, 0.75], "bytes_ci": null, "variants": ["batch"]}]}]}, {"workload": "mutex", "title": "Lock contention", "blurb": "8 workers increment one shared counter under a mutex.", "unit": "increments/s", "sizes": [{"size": 10000000, "points": [{"threads": 1, "impl": "tokio", "status": "ok", "reason": null, "runs": 3, "ops_median": 48949507.6, "ops_min": 48877630.3, "ops_max": 49257184.7, "cv_pct": 0.4112245082106939, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [48877630.3, 49257184.7, 0.75], "bytes_ci": null, "variants": []}, {"threads": 1, "impl": "tokio+mimalloc+parking-lot", "status": "ok", "reason": null, "runs": 3, "ops_median": 229638330.9, "ops_min": 229173497.5, "ops_max": 232723389.4, "cv_pct": 0.8370050592487662, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [229173497.5, 232723389.4, 0.75], "bytes_ci": null, "variants": ["parking-lot"]}, {"threads": 1, "impl": "tokio+parking-lot", "status": "ok", "reason": null, "runs": 3, "ops_median": 227776351.1, "ops_min": 225352681.5, "ops_max": 228359281.5, "cv_pct": 0.7018976035621194, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [225352681.5, 228359281.5, 0.75], "bytes_ci": null, "variants": ["parking-lot"]}, {"threads": 2, "impl": "tokio", "status": "ok", "reason": null, "runs": 3, "ops_median": 8714766.0, "ops_min": 8681668.0, "ops_max": 8895758.9, "cv_pct": 1.3149750723469786, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [8681668.0, 8895758.9, 0.75], "bytes_ci": null, "variants": []}, {"threads": 2, "impl": "tokio+mimalloc+parking-lot", "status": "ok", "reason": null, "runs": 3, "ops_median": 147886894.4, "ops_min": 146497147.0, "ops_max": 154779117.1, "cv_pct": 2.962298385858497, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [146497147.0, 154779117.1, 0.75], "bytes_ci": null, "variants": ["parking-lot"]}, {"threads": 2, "impl": "tokio+parking-lot", "status": "ok", "reason": null, "runs": 3, "ops_median": 140669890.8, "ops_min": 138788670.0, "ops_max": 156674993.2, "cv_pct": 6.760812300571531, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [138788670.0, 156674993.2, 0.75], "bytes_ci": null, "variants": ["parking-lot"]}, {"threads": 12, "impl": "tokio", "status": "ok", "reason": null, "runs": 3, "ops_median": 8298667.1, "ops_min": 8126806.6, "ops_max": 8758860.4, "cv_pct": 3.8929462902563343, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [8126806.6, 8758860.4, 0.75], "bytes_ci": null, "variants": []}, {"threads": 12, "impl": "tokio+mimalloc+parking-lot", "status": "ok", "reason": null, "runs": 3, "ops_median": 79473975.1, "ops_min": 72041630.3, "ops_max": 85927731.4, "cv_pct": 8.779520074218684, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [72041630.3, 85927731.4, 0.75], "bytes_ci": null, "variants": ["parking-lot"]}, {"threads": 12, "impl": "tokio+parking-lot", "status": "ok", "reason": null, "runs": 3, "ops_median": 86765967.8, "ops_min": 82039482.5, "ops_max": 89629950.9, "cv_pct": 4.449617699869755, "lat_p50_ns": null, "lat_p99_ns": null, "lat_p999_ns": null, "bytes_per_task": null, "expected_runs": 3, "ops_ci": [82039482.5, 89629950.9, 0.75], "bytes_ci": null, "variants": ["parking-lot"]}]}]}]};
 
 // Color follows the implementation's position in the run, so it is identical in every chart.
-const IMPLS = DATA.impls;
-const color = impl => `var(--series-${IMPLS.indexOf(impl) + 1})`;
+const color = impl => `var(--series-${DATA.impls.indexOf(impl) + 1})`;
+
+// Display order and names mirror report.py: tokio-tuned and tokio+VARIANT sit right after tokio.
+function displayOrder(impls) {
+  const key = (impl, i) => {
+    const parent = impls.findIndex(p => p !== impl && (impl.startsWith(p + "-") || impl.startsWith(p + "+")));
+    return parent < 0 ? [i, 0, 0] : [parent, 1, i];
+  };
+  return impls.map((impl, i) => [key(impl, i), impl])
+    .sort(([a], [b]) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2])
+    .map(([, impl]) => impl);
+}
+const IMPLS = displayOrder(DATA.impls);
+const DISPLAY_NAMES = { tokio: "Tokio", "tokio-tuned": "Tuned Tokio", crossbeam: "Crossbeam", go: "Go" };
+const nameOf = impl => {
+  const [base, ...variants] = impl.split("+");
+  return (DISPLAY_NAMES[base] ?? base) + variants.map(v => ` + ${v}`).join("");
+};
 const implsIn = points => IMPLS.filter(impl => points.some(p => p.impl === impl));
+// "partial" cells had some failed runs; their median covers only the runs that succeeded.
+const shown = p => p != null && (p.status === "ok" || p.status === "partial");
+const runsText = p => `${p.runs}/${p.expected_runs ?? DATA.meta.reps} runs`;
+const partialMark = p => (p.status === "partial" ? ` (${runsText(p)})` : "");
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 function el(tag, attrs = {}, text) {
@@ -202,24 +222,40 @@ function sv(tag, attrs = {}, text) {
   return e;
 }
 
-// ---- number formatting (mirrors report.py)
-const sig = v => String(Number(v.toPrecision(3)));
-function fmtSI(v) {
-  if (v == null) return "–";
-  for (const [d, s] of [[1e9, "B"], [1e6, "M"], [1e3, "K"]]) if (Math.abs(v) >= d) return sig(v / d) + s;
-  return sig(v);
+// ---- number formatting (mirrors report.py). Values keep 3 significant digits with trailing zeros
+// (4.00M); compact = true drops them, for axis ticks and sizes (20M, 10K).
+function sig3(x, compact) {
+  x = Number(x.toPrecision(3));
+  if (x === 0) return "0";
+  if (compact) return String(x);
+  const a = Math.abs(x);
+  return x.toFixed(a >= 100 ? 0 : a >= 10 ? 1 : 2);
 }
-function fmtNs(v) {
+function fmtSI(v, compact = false) {
+  if (v == null) return "–";
+  v = Number(v.toPrecision(3));  // round first so 999.6K becomes 1.00M, not 1000K
+  for (const [d, s] of [[1e12, "T"], [1e9, "B"], [1e6, "M"], [1e3, "K"]]) if (Math.abs(v) >= d) return sig3(v / d, compact) + s;
+  return sig3(v, compact);
+}
+function fmtNs(v, compact = false) {
   if (v == null) return "–";
   if (v === 0) return "0";
-  for (const [d, u] of [[1e9, "s"], [1e6, "ms"], [1e3, "µs"]]) if (v >= d) return `${sig(v / d)} ${u}`;
+  v = Number(v.toPrecision(3));
+  for (const [d, u] of [[1e9, "s"], [1e6, "ms"], [1e3, "µs"]]) if (v >= d) return `${sig3(v / d, compact)} ${u}`;
   return `${Math.round(v)} ns`;
 }
-function fmtBytes(v) {
+function fmtBytes(v, compact = false) {
   if (v == null) return "–";
   if (v === 0) return "0";
-  for (const [d, u] of [[1 << 30, "GiB"], [1 << 20, "MiB"], [1 << 10, "KiB"]]) if (v >= d) return `${sig(v / d)} ${u}`;
-  return `${Math.round(v)} B`;
+  const units = [[1 << 30, "GiB"], [1 << 20, "MiB"], [1 << 10, "KiB"], [1, "B"]];
+  for (let i = 0; i < units.length; i++) {
+    let [d, u] = units[i];
+    if (v < d && d !== 1) continue;
+    // Round after scaling (binary units), and step up a unit if rounding reaches 1000.
+    if (i > 0 && Number((v / d).toPrecision(3)) >= 1000) [d, u] = units[i - 1];
+    return d === 1 ? `${Math.round(v)} B` : `${sig3(v / d, compact)} ${u}`;
+  }
+  return "–";
 }
 const pct = v => `±${v.toFixed(1)}%`;
 const noisy = p => p.cv_pct > DATA.cvWarn;
@@ -240,7 +276,7 @@ function showTip(cx, cy, title, rows) {
     const row = el("div", { class: "tip-row" });
     const key = el("span", { class: "key-line" });
     key.style.background = color(r.impl);
-    row.append(key, el("strong", {}, r.value), el("span", { class: "tip-name" }, r.impl));
+    row.append(key, el("strong", {}, r.value), el("span", { class: "tip-name" }, nameOf(r.impl)));
     if (r.detail) row.append(el("span", { class: "tip-detail" }, r.detail));
     tip.append(row);
   }
@@ -261,7 +297,7 @@ function legend(kind, impls = IMPLS) {
     const item = el("span", { class: "legend-item" });
     const key = el("span", { class: kind === "rect" ? "key-rect" : "key-line" });
     key.style.background = color(impl);
-    item.append(key, document.createTextNode(impl));
+    item.append(key, document.createTextNode(nameOf(impl)));
     box.append(item);
   }
   return box;
@@ -279,9 +315,9 @@ function card(parent, title, subtitle, legendKind, impls) {
 function missingNote(c, points) {
   for (const impl of implsIn(points)) {
     const mine = points.filter(p => p.impl === impl);
-    if (mine.length && mine.every(p => p.status !== "ok")) {
+    if (mine.length && mine.every(p => !shown(p))) {
       const p = mine[0];
-      c.append(el("p", { class: "card-note" }, `${impl}: ${p.status}${p.reason ? ` (${p.reason})` : ""}`));
+      c.append(el("p", { class: "card-note" }, `${nameOf(impl)}: ${p.status}${p.reason ? ` (${p.reason})` : ""}`));
     }
   }
 }
@@ -296,7 +332,7 @@ function tableView(c, points, cell) {
   const impls = implsIn(points);
   const head = el("tr");
   head.append(el("th", {}, "Threads"));
-  for (const impl of impls) head.append(el("th", {}, impl));
+  for (const impl of impls) head.append(el("th", {}, nameOf(impl)));
   table.append(el("thead"));
   table.tHead.append(head);
   const body = el("tbody");
@@ -306,7 +342,7 @@ function tableView(c, points, cell) {
     for (const impl of impls) {
       const p = findPoint(points, impl, t);
       const td = el("td");
-      if (p && p.status === "ok") td.textContent = cell(p);
+      if (shown(p)) td.textContent = cell(p) + partialMark(p);
       else td.append(el("span", { class: "muted" }, p ? p.status : "–"));
       tr.append(td);
     }
@@ -338,7 +374,7 @@ function lineChart(c, cfg) {
     impl,
     pts: threads.map(t => {
       const row = findPoint(cfg.points, impl, t);
-      const v = row && row.status === "ok" ? cfg.value(row) : null;
+      const v = shown(row) ? cfg.value(row) : null;
       return { row, v: v ?? null };
     }),
   }));
@@ -356,7 +392,7 @@ function lineChart(c, cfg) {
     const svg = sv("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: "img", tabindex: 0, "aria-label": `${cfg.label}. Use left and right arrow keys to read values.` });
     for (let v = 0; v <= max + step / 2; v += step) {
       svg.append(sv("line", { x1: m.left, x2: W - m.right, y1: y(v), y2: y(v), class: v === 0 ? "ax" : "gl" }));
-      svg.append(sv("text", { x: m.left - 8, y: y(v) + 4, class: "tick", "text-anchor": "end" }, cfg.fmt(v)));
+      svg.append(sv("text", { x: m.left - 8, y: y(v) + 4, class: "tick", "text-anchor": "end" }, cfg.fmt(v, true)));
     }
     threads.forEach((t, i) => svg.append(sv("text", { x: x(i), y: m.top + ph + 18, class: "tick", "text-anchor": "middle" }, String(t))));
     svg.append(sv("text", { x: m.left + pw / 2, y: H - 6, class: "axis-title", "text-anchor": "middle" }, "Worker threads (= pinned CPUs)"));
@@ -386,7 +422,7 @@ function lineChart(c, cfg) {
     const ends = series.filter(s => s.pts[last].v != null).map(s => ({ impl: s.impl, yy: y(s.pts[last].v) }));
     for (const e of ends) {
       if (ends.some(o => o !== e && Math.abs(o.yy - e.yy) < 14)) continue;
-      svg.append(sv("text", { x: x(last) + 10, y: e.yy + 4, class: "end-label" }, e.impl));
+      svg.append(sv("text", { x: x(last) + 10, y: e.yy + 4, class: "end-label" }, nameOf(e.impl)));
     }
 
     const show = (i, cx, cy) => {
@@ -429,7 +465,7 @@ function barChart(c, cfg) {
   const t = Math.max(...threadsOf(cfg.points));
   const rows = implsIn(cfg.points).map(impl => {
     const row = findPoint(cfg.points, impl, t);
-    const v = row && row.status === "ok" ? cfg.value(row) : null;
+    const v = shown(row) ? cfg.value(row) : null;
     return { impl, row, v: v ?? null };
   });
   const host = el("div", { class: "chart" });
@@ -445,12 +481,12 @@ function barChart(c, cfg) {
     const plotBottom = m.top + rows.length * rowH;
     for (let v = 0; v <= max + step / 2; v += step) {
       if (v > 0) svg.append(sv("line", { x1: x(v), x2: x(v), y1: m.top, y2: plotBottom, class: "gl" }));
-      svg.append(sv("text", { x: x(v), y: plotBottom + 18, class: "tick", "text-anchor": "middle" }, cfg.fmt(v)));
+      svg.append(sv("text", { x: x(v), y: plotBottom + 18, class: "tick", "text-anchor": "middle" }, cfg.fmt(v, true)));
     }
     rows.forEach((r, i) => {
       const top = m.top + i * rowH + (rowH - barH) / 2;
       const mid = top + barH / 2 + 4;
-      svg.append(sv("text", { x: m.left - 10, y: mid, class: "row-label", "text-anchor": "end" }, r.impl));
+      svg.append(sv("text", { x: m.left - 10, y: mid, class: "row-label", "text-anchor": "end" }, nameOf(r.impl)));
       if (r.v == null) {
         svg.append(sv("text", { x: x(0) + 8, y: mid, class: "note" }, r.row ? r.row.status : "no data"));
       } else {
@@ -459,7 +495,7 @@ function barChart(c, cfg) {
         svg.append(sv("path", { d, fill: color(r.impl) }));
         svg.append(sv("text", { x: x1 + 6, y: mid, class: "value-label" }, cfg.fmt(r.v)));
       }
-      const hit = sv("rect", { x: 0, y: m.top + i * rowH, width: W, height: rowH, class: "hit", tabindex: 0, "aria-label": `${r.impl}: ${r.v == null ? (r.row ? r.row.status : "no data") : cfg.fmt(r.v)}` });
+      const hit = sv("rect", { x: 0, y: m.top + i * rowH, width: W, height: rowH, class: "hit", tabindex: 0, "aria-label": `${nameOf(r.impl)}: ${r.v == null ? (r.row ? r.row.status : "no data") : cfg.fmt(r.v)}` });
       const show = (cx, cy) => showTip(cx, cy, `${t} thread${t === 1 ? "" : "s"}`, [
         r.v == null
           ? { impl: r.impl, value: r.row ? r.row.status : "no data", detail: r.row?.reason ?? null }
@@ -476,10 +512,22 @@ function barChart(c, cfg) {
   });
 }
 
+// Mirrors report.py clear_best: the best must display differently from the runner-up and their
+// median confidence intervals must not overlap; otherwise there is no clear winner.
+function clearBest(entries, fmt, lowerBetter, ciOf) {
+  const ranked = entries.filter(([, v]) => v != null).sort(([, a], [, b]) => (lowerBetter ? a - b : b - a));
+  if (ranked.length < 2) return null;
+  const [[first, v1, p1], [, v2, p2]] = ranked;
+  if (fmt(v1) === fmt(v2)) return null;
+  const [c1, c2] = [ciOf(p1), ciOf(p2)];
+  if (c1 && c2 && !(lowerBetter ? c1[1] < c2[0] : c1[0] > c2[1])) return null;
+  return first;
+}
+
 // ---- page
 const meta = DATA.meta;
 const bases = [...new Set(IMPLS.map(i => i.split("+")[0]))];
-document.getElementById("title").textContent = bases.map(b => b[0].toUpperCase() + b.slice(1)).join(" vs ") +
+document.getElementById("title").textContent = bases.map(nameOf).join(" vs ") +
   (IMPLS.some(i => i.includes("+")) ? " (with Tokio variants)" : "");
 document.getElementById("subtitle").textContent =
   `Profile “${meta.profile}”, started ${meta.started_at}. Each point is the median of ${meta.reps} measured runs ` +
@@ -499,7 +547,7 @@ if (meta.warnings.length) {
 (() => {
   const table = el("table");
   const head = el("tr");
-  for (const h of ["Test", "Threads", ...IMPLS, "Unit"]) head.append(el("th", {}, h));
+  for (const h of ["Test", "Threads", ...IMPLS.map(nameOf), "Unit"]) head.append(el("th", {}, h));
   table.append(el("thead"));
   table.tHead.append(head);
   const body = el("tbody");
@@ -509,24 +557,24 @@ if (meta.warnings.length) {
     const fmt = lowerBetter ? fmtBytes : fmtSI;
     for (const z of sec.sizes) {
       const t = Math.max(...threadsOf(z.points));
-      const vals = IMPLS.map(impl => { const p = findPoint(z.points, impl, t); return p && p.status === "ok" ? value(p) : null; });
-      const present = vals.filter(v => v != null);
-      const best = present.length > 1 ? (lowerBetter ? Math.min : Math.max)(...present) : null;
+      const vals = IMPLS.map(impl => { const p = findPoint(z.points, impl, t); return shown(p) ? value(p) : null; });
+      const bestImpl = clearBest(IMPLS.map((impl, i) => [impl, vals[i], findPoint(z.points, impl, t)]), fmt, lowerBetter,
+        p => (lowerBetter ? p.bytes_ci : p.ops_ci));
       const tr = el("tr");
       const name = el("td");
       const link = el("a", { href: `#${sec.workload}` }, sec.title);
       link.style.color = "inherit";
-      name.append(link, el("span", { class: "muted" }, ` · ${fmtSI(z.size)}`));
+      name.append(link, el("span", { class: "muted" }, ` · ${fmtSI(z.size, true)}`));
       tr.append(name, el("td", {}, String(t)));
       IMPLS.forEach((impl, i) => {
         const td = el("td");
+        const p = findPoint(z.points, impl, t);
         if (vals[i] == null) {
-          const p = findPoint(z.points, impl, t);
-          td.append(el("span", { class: "muted" }, p ? p.status : "–"));
-        } else if (vals[i] === best) {
-          td.append(el("strong", {}, fmt(vals[i])));
+          td.append(el("span", { class: "muted" }, p && !shown(p) ? p.status : "–"));
+        } else if (impl === bestImpl) {
+          td.append(el("strong", {}, fmt(vals[i])), document.createTextNode(partialMark(p)));
         } else {
-          td.textContent = fmt(vals[i]);
+          td.textContent = fmt(vals[i]) + partialMark(p);
         }
         tr.append(td);
       });
@@ -554,13 +602,13 @@ for (const sec of DATA.sections) {
   root.append(section);
 
   if (sec.workload === "idle") {
-    const max = Math.max(0, ...sec.sizes.flatMap(z => z.points.filter(p => p.status === "ok").map(p => p.bytes_per_task)));
+    const max = Math.max(0, ...sec.sizes.flatMap(z => z.points.filter(shown).map(p => p.bytes_per_task)));
     for (const z of sec.sizes) {
       const c = card(grid, `${z.size.toLocaleString("en-US")} idle tasks`, "Resident memory added per task · lower is better · same scale across sizes", "rect", implsIn(z.points));
       barChart(c, {
         points: z.points, max, fmt: fmtBytes, value: p => p.bytes_per_task,
         label: `Memory per idle task with ${z.size} tasks`,
-        detail: p => `${pct(p.cv_pct)} across ${p.runs} runs`,
+        detail: p => `${pct(p.cv_pct)} across ${runsText(p)}`,
       });
       missingNote(c, z.points);
       tableView(c, z.points, p => `${fmtBytes(p.bytes_per_task)} ${pct(p.cv_pct)}`);
@@ -573,7 +621,7 @@ for (const sec of DATA.sections) {
     lineChart(c, {
       points: z.points, whisker: true, fmt: fmtSI, value: p => p.ops_median,
       label: `${sec.title} throughput by thread count`,
-      detail: p => `${pct(p.cv_pct)}${noisy(p) ? " ⚠ noisy" : ""} · range ${fmtSI(p.ops_min)}–${fmtSI(p.ops_max)} · ${p.runs} runs`,
+      detail: p => `${pct(p.cv_pct)}${noisy(p) ? " ⚠ noisy" : ""} · range ${fmtSI(p.ops_min)}–${fmtSI(p.ops_max)} · ${runsText(p)}`,
     });
     missingNote(c, z.points);
     tableView(c, z.points, p => `${fmtSI(p.ops_median)} ${pct(p.cv_pct)}${noisy(p) ? " ⚠" : ""}`);
