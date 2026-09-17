@@ -51,19 +51,26 @@ At 12 threads:
 1. Crossbeam runs one OS thread per task and stops at 20,000. This cell reads "error" in `summary.md` because
    the runner's memory guard skipped it first; the runner now records that as a skip.
 
-**Default Tokio, Crossbeam and Go:**
-- **Channels with room to buffer (capacity 1024):** Crossbeam is fastest (37.1M on 1 → 1, 26.5M on 4 → 4),
-  Go second (29.3M, 18.7M), default Tokio last (13.1M, 9.78M).
-- **Capacity 1:** Go is the fastest of the three on all three capacity-1 tests at every thread count from 2 up,
-  e.g. 1 → 1 at 12 threads: Go 10.5M, Crossbeam 7.10M, Tokio 4.91M.
+**Overall (all four):** tuned Tokio is fastest on every channel test except select at capacity 1, on ping-pong
+throughput and median latency, and on lock contention, and uses the least memory per idle task. Go wins select
+at capacity 1 and spawning 1M tasks. Crossbeam has the best ping-pong tail latency. Nobody clearly wins
+CPU-heavy work or spawning 10K tasks.
+
+**Without tuning (default Tokio vs Crossbeam vs Go only):**
+- **Channels with room to buffer (capacity 1024):** of these three, Crossbeam is fastest (37.1M on 1 → 1, 26.5M
+  on 4 → 4), Go second (29.3M, 18.7M) and default Tokio last (13.1M, 9.78M). Tuned Tokio beats all three
+  (135M, 81.1M).
+- **Capacity 1:** of these three, Go is fastest on all three capacity-1 tests at every thread count from 2 up,
+  e.g. 1 → 1 at 12 threads: Go 10.5M, Crossbeam 7.10M, Tokio 4.91M. Tuned Tokio beats Go on 1 → 1 and 4 → 4
+  but not on select.
 - **Ping-pong:** Tokio does the most round trips (4.31M) with the lowest median latency (140 ns vs Go 250 ns,
   Crossbeam 280 ns). Crossbeam has the best tail from 2 threads up (p99 331–346 ns, Go 441–516 ns, Tokio about
   2.2 µs). On 1 CPU Crossbeam collapses to 134K round trips/s because each hop is an OS thread switch.
-- **Select at capacity 1024:** Tokio 20.0M, well ahead of Go (13.8M) and Crossbeam (13.3M).
+- **Select at capacity 1024:** default Tokio 20.0M, well ahead of Go (13.8M) and Crossbeam (13.3M).
 - **Spawn:** Go leads at 12 threads (5.59M tasks/s at 1M tasks vs Tokio 3.56M); on 1 thread Tokio leads (3.80M
   vs Go 1.25M). Crossbeam's OS threads manage 18K–29K/s.
-- **Lock contention:** Crossbeam's `std::sync::Mutex` (29.4M) and Go's `sync.Mutex` (25.8M) are close; Tokio's
-  async mutex is about 3× slower (8.98M).
+- **Lock contention:** Crossbeam's `std::sync::Mutex` (29.4M) and Go's `sync.Mutex` (25.8M) are close; default
+  Tokio's async mutex is about 3× slower (8.98M).
 - **CPU-heavy:** Tokio and Crossbeam tie at about 99M items/s; Go is about 9% behind.
 - **Memory per idle task:** Tokio 385 B, Go 2.69 KiB (about 7×), a Crossbeam OS thread 9.92 KiB (about 25× Tokio
   at 10K tasks, not counting kernel memory).
