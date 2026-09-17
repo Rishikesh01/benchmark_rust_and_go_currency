@@ -105,22 +105,38 @@ def cv_pct(values: list[float]) -> float:
 
 # ---------------------------------------------------------------- formatting
 
+def sig3(x: float) -> str:
+    """Three significant digits, keeping trailing zeros (4.00, 27.0, 115)."""
+    x = float(f"{x:.3g}")
+    return f"{x:.0f}" if abs(x) >= 100 else f"{x:.1f}" if abs(x) >= 10 else f"{x:.2f}"
+
+
 def fmt_si(v: float | None) -> str:
     if v is None:
         return "-"
+    v = float(f"{v:.3g}")  # round first so 999.6K becomes 1.00M, not 1000K
     for div, suffix in ((1e9, "B"), (1e6, "M"), (1e3, "K")):
         if abs(v) >= div:
-            return f"{v / div:.3g}{suffix}"
-    return f"{v:.3g}"
+            return f"{sig3(v / div)}{suffix}"
+    return sig3(v)
 
 
 def fmt_ns(v: float | None) -> str:
     if v is None:
         return "-"
+    v = float(f"{v:.3g}")
     for div, unit in ((1e9, "s"), (1e6, "ms"), (1e3, "µs")):
         if v >= div:
-            return f"{v / div:.3g} {unit}"
+            return f"{sig3(v / div)} {unit}"
     return f"{v:.0f} ns"
+
+
+def fmt_count(n: int) -> str:
+    """Compact run size for labels: 10K, 100K, 1M."""
+    for div, suffix in ((1_000_000_000, "B"), (1_000_000, "M"), (1_000, "K")):
+        if n >= div:
+            return f"{n / div:.3g}{suffix}"
+    return str(n)
 
 
 def fmt_bytes(v: float | None) -> str:
@@ -128,7 +144,7 @@ def fmt_bytes(v: float | None) -> str:
         return "-"
     for div, unit in ((1 << 30, "GiB"), (1 << 20, "MiB"), (1 << 10, "KiB")):
         if v >= div:
-            return f"{v / div:.3g} {unit}"
+            return f"{sig3(v / div)} {unit}"
     return f"{v:.0f} B"
 
 
@@ -154,43 +170,127 @@ def write_csv(path: Path, summary: list[dict]) -> None:
 
 # ---------------------------------------------------------------- markdown
 
+DISPLAY_NAMES = {"tokio": "Tokio", "tokio-tuned": "Tuned Tokio", "crossbeam": "Crossbeam", "go": "Go"}
+
+# Test names in the summary table. {size} is the compact run size; other fields are the case parameters.
+ROW_LABELS = {
+    "spsc": "1 sender → 1 receiver, capacity {capacity}",
+    "spsc-cap1": "1 sender → 1 receiver, capacity {capacity}",
+    "mpmc": "{producers} senders → {consumers} receivers, capacity {capacity}",
+    "mpmc-cap1": "{producers} senders → {consumers} receivers, capacity {capacity}",
+    "pingpong": "Ping-pong",
+    "spawn": "Spawn and join, {size} tasks",
+    "cpu": "CPU-heavy hashing",
+    "select": "Select over 2 channels, capacity {capacity}",
+    "select-cap1": "Select over 2 channels, capacity {capacity}",
+    "mutex": "Lock contention, {workers} workers",
+    "idle": "Memory per idle task, {size} tasks",
+}
+
+
 def render_markdown(meta: dict, summary: list[dict]) -> str:
-    out = [f"# Concurrency benchmark: {' vs '.join(meta['impls'])}", ""]
-    out += machine_lines(meta)
-    if meta.get("variant_help"):
-        out += ["", "**Tokio variants**", ""] + [f"- `{v}`: {help}" for v, help in meta["variant_help"].items()]
-    if meta["warnings"]:
-        out += ["", "**Warnings**", ""] + [f"- ⚠ {w}" for w in meta["warnings"]]
-    out += [
+    impls = display_order(meta["impls"])
+    specs = table_specs(summary)
+    threads = sorted({s["threads"] for s in summary})
+    top = threads[-1] if threads else 0
+
+    bases = list(dict.fromkeys(impl.split("+")[0] for impl in impls))
+    title = " vs ".join(DISPLAY_NAMES.get(b, b) for b in bases)
+    warmups = f"{meta['warmup']} warm-up{'' if meta['warmup'] == 1 else 's'}"
+    out = [
+        f"# {title}",
         "",
-        f"Each cell is the median of {meta['reps']} measured runs (after {meta['warmup']} warm-up{'' if meta['warmup'] == 1 else 's'}), "
-        f"with the coefficient of variation. **Bold** is the best in the row; ⚠ marks CV above {CV_WARN_PCT:.0f}%. "
-        "Every run is a separate process pinned to `threads` CPUs with taskset.",
+        f"Median of {meta['reps']} runs after {warmups} (profile `{meta['profile']}`, started {meta['started_at']}). "
+        f"**Bold** is the best in each row; ⚠ means the runs varied by more than {CV_WARN_PCT:.0f}%. "
+        "Spread, min/max and p99.9 latency are in `summary.csv`.",
     ]
+    if meta["warnings"]:
+        out += ["", "⚠ Run conditions: " + " ".join(w.split(". Fix:")[0].rstrip(".") + "." for w in meta["warnings"])]
 
-    for workload, by_size in grouped(summary).items():
-        params = next(iter(next(iter(by_size.values())).values()))[0]["params"]
-        title, blurb, unit = describe(workload, params)
-        present = {s["impl"] for by_threads in by_size.values() for rows in by_threads.values() for s in rows}
-        impls = [i for i in meta["impls"] if i in present]
-        out += ["", f"## {title} (`{workload}`)", "", blurb]
-        for size, by_threads in by_size.items():
-            if workload == "idle":
-                out += ["", f"Tasks: {size:,}. Lower is better.", ""]
-                out += table(impls, by_threads, "Threads", lambda s: s.get("bytes_per_task"), fmt_bytes, lower_better=True)
-                continue
-            out += ["", f"Size: {size:,}. Unit: {unit}, higher is better.", ""]
-            out += table(impls, by_threads, "Threads", lambda s: s.get("ops_median"), fmt_si, lower_better=False)
-            if workload == "pingpong":
-                for key, label in (("lat_p50_ns", "p50"), ("lat_p99_ns", "p99"), ("lat_p999_ns", "p99.9")):
-                    out += ["", f"Round-trip latency {label} (lower is better):", ""]
-                    out += table(impls, by_threads, "Threads", lambda s, k=key: s.get(k), fmt_ns, lower_better=True, show_cv=False)
+    header = ["Test"] + [display_name(i) for i in impls] + ["Unit"]
+    out += ["", f"## At {top} threads", "", md_row(header), md_row(["---"] + ["---:"] * len(impls) + ["---"])]
+    for label, unit, key, fmt, lower_better, by_threads in specs:
+        if top in by_threads:
+            out.append(md_row([label] + table_cells(impls, by_threads[top], key, fmt, lower_better) + [unit]))
 
-    problems = [s for s in summary if s["status"] != "ok"]
-    if problems:
-        out += ["", "## Skipped or failed", "", "| Workload | Size | Threads | Impl | Status | Reason |", "|---|---:|---:|---|---|---|"]
-        out += [f"| {s['workload']} | {s['size']:,} | {s['threads']} | {s['impl']} | {s['status']} | {s['reason'] or ''} |" for s in problems]
+    if len(threads) > 1:
+        header = ["Test", "Threads"] + [display_name(i) for i in impls] + ["Unit"]
+        out += ["", "## All thread counts", "", md_row(header), md_row(["---", "---:"] + ["---:"] * len(impls) + ["---"])]
+        for label, unit, key, fmt, lower_better, by_threads in specs:
+            for n, (t, rows) in enumerate(sorted(by_threads.items())):
+                cells = table_cells(impls, rows, key, fmt, lower_better)
+                out.append(md_row([label if n == 0 else "", str(t)] + cells + [unit if n == 0 else ""]))
+
+    notes = {}
+    for s in summary:
+        if s["status"] != "ok":
+            case = ROW_LABELS.get(s["workload"], s["workload"]).format(size=fmt_count(s["size"]), **s["params"])
+            notes.setdefault((s["impl"], s["status"], s["reason"]), []).append(case)
+    out += ["", "## Notes", ""]
+    for (impl, status, reason), cases in notes.items():
+        out.append(f"- {display_name(impl)} {status}" + (f" ({reason})" if reason else "") + ": " + "; ".join(dict.fromkeys(cases)))
+    for v, help_text in (meta.get("variant_help") or {}).items():
+        out.append(f"- Tokio + {v}: {help_text}")
+    out += machine_lines(meta)
     return "\n".join(out) + "\n"
+
+
+def display_order(impls: list[str]) -> list[str]:
+    """Run order, except that tokio-tuned and tokio+VARIANT sit right after the implementation they derive from."""
+    def key(item: tuple[int, str]) -> tuple[int, int]:
+        i, impl = item
+        parent = next((j for j, p in enumerate(impls) if impl != p and impl.startswith((p + "-", p + "+"))), i)
+        return parent, i
+    return [impl for _, impl in sorted(enumerate(impls), key=key)]
+
+
+def display_name(impl: str) -> str:
+    base, *variants = impl.split("+")
+    return DISPLAY_NAMES.get(base, base) + "".join(f" + {v}" for v in variants)
+
+
+def table_specs(summary: list[dict]) -> list[tuple]:
+    """(label, unit, value key, formatter, lower is better, rows by thread count) for each table line."""
+    specs = []
+    for workload, by_size in grouped(summary).items():
+        for size, by_threads in by_size.items():
+            params = next(iter(by_threads.values()))[0]["params"]
+            label = ROW_LABELS.get(workload, workload).format(size=fmt_count(size), **params)
+            if workload == "idle":
+                specs.append((label, "bytes per task, lower is better", "bytes_per_task", fmt_bytes, True, by_threads))
+                continue
+            specs.append((label, describe(workload, params)[2], "ops_median", fmt_si, False, by_threads))
+            if workload == "pingpong":
+                for key, pct in (("lat_p50_ns", "p50"), ("lat_p99_ns", "p99")):
+                    specs.append((f"Ping-pong latency {pct}", "per round trip, lower is better", key, fmt_ns, True, by_threads))
+    return specs
+
+
+def table_cells(impls: list[str], rows: list[dict], key: str, fmt, lower_better: bool) -> list[str]:
+    by_impl = {s["impl"]: s for s in rows}
+    values = {i: by_impl[i][key] for i in impls if i in by_impl and by_impl[i]["status"] == "ok" and by_impl[i].get(key) is not None}
+    # Compare as displayed, so values that look identical are all marked best.
+    best = fmt((min if lower_better else max)(values.values())) if len(values) > 1 else None
+    cells = []
+    for impl in impls:
+        s = by_impl.get(impl)
+        if s is None:
+            cells.append("—")
+        elif impl not in values:
+            cells.append(s["status"])
+        else:
+            cell = fmt(values[impl])
+            if cell == best:
+                cell = f"**{cell}**"
+            # Spread is measured on throughput (or memory), so it is not shown on latency rows.
+            if not key.startswith("lat_") and s.get("cv_pct", 0) > CV_WARN_PCT:
+                cell += " ⚠"
+            cells.append(cell)
+    return cells
+
+
+def md_row(cells: list[str]) -> str:
+    return "| " + " | ".join(cells) + " |"
 
 
 def grouped(summary: list[dict]) -> dict:
@@ -199,30 +299,6 @@ def grouped(summary: list[dict]) -> dict:
     for s in summary:
         g.setdefault(s["workload"], {}).setdefault(s["size"], {}).setdefault(s["threads"], []).append(s)
     return g
-
-
-def table(impls, by_threads, first_col, value, fmt, lower_better, show_cv=True) -> list[str]:
-    lines = [f"| {first_col} | " + " | ".join(impls) + " |", "|---:|" + "---:|" * len(impls)]
-    for threads, rows in by_threads.items():
-        by_impl = {s["impl"]: s for s in rows}
-        values = {i: value(by_impl[i]) for i in impls if i in by_impl and by_impl[i]["status"] == "ok" and value(by_impl[i]) is not None}
-        best = (min if lower_better else max)(values.values()) if len(values) > 1 else None
-        cells = []
-        for impl in impls:
-            s = by_impl.get(impl)
-            if s is None:
-                cells.append("-")
-            elif impl not in values:
-                cells.append(s["status"])
-            else:
-                cell = fmt(values[impl])
-                if values[impl] == best:
-                    cell = f"**{cell}**"
-                if show_cv:
-                    cell += f" ±{s['cv_pct']:.1f}%" + (" ⚠" if s["cv_pct"] > CV_WARN_PCT else "")
-                cells.append(cell)
-        lines.append(f"| {threads} | " + " | ".join(cells) + " |")
-    return lines
 
 
 def machine_lines(meta: dict) -> list[str]:

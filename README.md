@@ -23,8 +23,8 @@ results/<profile>-<timestamp>/
 
 From [`results/full-20260916-231803`](results/full-20260916-231803/summary.md): AMD Ryzen 5 5625U laptop
 (6 cores / 12 threads), 3 warm-ups + 10 measured runs, medians. The CPU governor was `powersave` and the load
-average was 3.3 at the start, so some cells are noisy (marked ⚠ in `summary.md`). Tables for 1, 2 and 6 threads,
-spread and latency percentiles are in `summary.md`; charts are in `report.html`.
+average was 3.3 at the start, so some cells are noisy (marked ⚠ in `summary.md`). `summary.md` also has every
+test at 1, 2 and 6 threads; spread, min/max and p99.9 latency are in `summary.csv`; charts are in `report.html`.
 
 At 12 threads:
 
@@ -200,7 +200,7 @@ the binary `tokio-bench(-mimalloc)`; the code is the same.
 | `meta.json` | machine, toolchains, crate versions, governor, warnings, seed |
 | `raw.jsonl` | every run, including warm-ups, skips and failures |
 | `summary.csv` | one row per test case × size × threads × implementation |
-| `summary.md` | tables, best value in bold |
+| `summary.md` | every test in one table at the highest thread count, then the same table for all thread counts; best in bold, ⚠ for noisy results |
 | `report.html` | self-contained charts (hover for details, table view under each chart); download and open it locally, GitHub shows HTML as source |
 
 ## Adding a workload

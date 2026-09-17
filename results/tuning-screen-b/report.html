@@ -615,7 +615,7 @@ for (const sec of DATA.sections) {
     "Every run is a fresh process pinned with taskset to exactly N logical CPUs, one per physical core before any SMT sibling. Tokio worker_threads, Crossbeam pool size and GOMAXPROCS are all set to N.",
     "Each result is checked: a checksum must match the expected value (or, for the CPU test, match the other implementations) or the run is rejected.",
     "Tokio's own mpsc channel has one receiver, so the many-receivers test uses the async-channel crate.",
-    "Ping-pong uses capacity-1 channels everywhere, because Tokio channels cannot have zero capacity.",
+    "Every implementation uses the same channel capacity in a test: 1024 for the channel tests, 1 for their capacity-1 versions and for ping-pong (Tokio channels cannot have zero capacity).",
     "tokio-tuned is a separate program (rust/tokio-tuned-bench): mimalloc, kanal channels, batched receives, spawning without JoinHandles and parking_lot::Mutex, each kept only where screening showed a gain.",
     "Crossbeam has no lightweight tasks: spawn and idle tests use one OS thread per task and are skipped above 20,000 threads.",
     "Idle memory is resident memory (VmRSS) added after tasks park; kernel thread structures are not counted, which flatters OS threads.",
