@@ -10,9 +10,11 @@ The same workloads implemented four ways, with identical parameters, bounded cha
 
 ## Results
 
-AMD Ryzen 5 5625U laptop (6 cores / 12 threads), `performance` governor, on AC power. Medians of 10 runs at
-12 threads. **Bold** marks a clear winner: its confidence interval doesn't overlap the runner-up's. Every
-thread count, confidence intervals, CPU time and p99.9 latency: [`summary.md`](results/full-20260917-103559/summary.md),
+AMD Ryzen 5 5625U laptop (6 cores / 12 threads), `performance` governor, on AC power. Rust 1.98.0
+(`rustc 1.98.0 (88d9e12ae 2026-08-18)`, release build) and Go 1.27.0 (`go1.27.0 linux/amd64`). Medians of 10
+runs at 12 threads. **Bold** marks a clear winner: its confidence interval doesn't overlap the runner-up's.
+Every thread count, confidence intervals, CPU time and p99.9 latency:
+[`summary.md`](results/full-20260917-103559/summary.md),
 [`summary.csv`](results/full-20260917-103559/summary.csv).
 
 ### MPMC channels
