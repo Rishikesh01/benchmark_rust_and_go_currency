@@ -1,9 +1,11 @@
 {
   "profile": "full",
-  "started_at": "2026-09-18T19:09:06+05:30",
+  "started_at": "2026-09-18T21:04:46+05:30",
   "workloads": [
     "spsc",
     "spsc-cap1",
+    "mpsc",
+    "mpsc-cap1",
     "mpmc",
     "mpmc-cap1",
     "pingpong",
@@ -31,6 +33,12 @@
       10000000
     ],
     "spsc-cap1": [
+      1000000
+    ],
+    "mpsc": [
+      10000000
+    ],
+    "mpsc-cap1": [
       1000000
     ],
     "mpmc": [
@@ -71,6 +79,14 @@
     "spsc-cap1": {
       "capacity": 1
     },
+    "mpsc": {
+      "capacity": 1024,
+      "producers": 4
+    },
+    "mpsc-cap1": {
+      "capacity": 1,
+      "producers": 4
+    },
     "mpmc": {
       "capacity": 1024,
       "producers": 4,
@@ -104,7 +120,7 @@
   },
   "warmup": 3,
   "reps": 10,
-  "seed": 2760774673,
+  "seed": 3518097202,
   "cpu_order": [
     0,
     2,
@@ -130,11 +146,11 @@
     "performance"
   ],
   "on_ac_power": true,
-  "load_avg_1m": 2.37,
-  "cpu_temp_c_at_start": 62.9,
+  "load_avg_1m": 2.35,
+  "cpu_temp_c_at_start": 53.8,
   "quiet_cpu_pct": 10.0,
   "mem_total_kb": 23392964,
-  "mem_available_kb": 11862036,
+  "mem_available_kb": 15312164,
   "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
   "go": "go version go1.27.0 linux/amd64",
   "crates": {
@@ -148,10 +164,11 @@
     "parking_lot": "0.12.5",
     "tokio": "1.53.1"
   },
-  "git_commit": "d7c084849ce3e5b26e72d24a9bdfd80ab9761d43",
-  "git_dirty": false,
+  "git_commit": "3de846735ee1e6ab7fc5c44288cfe722676e1173",
+  "git_dirty": true,
   "variant_help": {},
   "warnings": [
-    "1-minute load average was 2.37 at start; other programs compete for CPU."
+    "1-minute load average was 2.35 at start; other programs compete for CPU.",
+    "Working tree has uncommitted changes; git_commit in meta.json does not fully describe the code."
   ]
 }

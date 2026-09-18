@@ -24,8 +24,8 @@ runs.
 - Throughput is the whole test's total, not per thread or task. Latency is per round trip, memory per idle task.
 - **Bold**: clear winner (confidence intervals don't overlap).
 
-Every thread count, confidence intervals and CPU time: [`summary.md`](results/full-20260918-190906/summary.md),
-[`summary.csv`](results/full-20260918-190906/summary.csv).
+Every thread count, confidence intervals and CPU time: [`summary.md`](results/full-20260918-210446/summary.md),
+[`summary.csv`](results/full-20260918-210446/summary.csv).
 
 ### MPMC channels
 
@@ -33,8 +33,8 @@ async-channel (Tokio), kanal (tuned Tokio), crossbeam-channel, Go `chan`.
 
 | Test | Tokio/Go tasks | Crossbeam threads | Tokio | Tuned Tokio | Crossbeam | Go | Unit |
 |---|---:|---:|---:|---:|---:|---:|---|
-| 4 senders → 4 receivers, capacity 1024 | 8 | 8 | 9.32M | **78.5M** | 24.3M | 17.6M | messages/s |
-| 4 senders → 4 receivers, capacity 1 | 8 | 8 | 1.74M | **17.4M** | 4.62M | 5.89M | messages/s |
+| 4 senders → 4 receivers, capacity 1024 | 8 | 8 | 9.80M | **81.3M** | 28.0M | 18.8M | messages/s |
+| 4 senders → 4 receivers, capacity 1 | 8 | 8 | 1.99M | **18.8M** | 5.17M | 6.61M | messages/s |
 
 ### Single-receiver channels
 
@@ -42,24 +42,26 @@ Tokio `mpsc`; tuned Tokio kanal (`mpsc` for select); Crossbeam and Go use their 
 
 | Test | Tokio/Go tasks | Crossbeam threads | Tokio | Tuned Tokio | Crossbeam | Go | Unit |
 |---|---:|---:|---:|---:|---:|---:|---|
-| 1 sender → 1 receiver, capacity 1024 | 2 | 2 | 13.2M | **129M** | 33.9M | 28.0M | messages/s |
-| 1 sender → 1 receiver, capacity 1 | 2 | 2 | 4.63M | **17.3M** | 6.70M | 10.4M | messages/s |
-| Ping-pong | 2 | 2 | 3.85M | **6.25M** | 3.81M | 3.58M | round trips/s |
-| Ping-pong latency p50 | 2 | 2 | 151 ns | **100 ns** | 281 ns | 275 ns | lower is better |
-| Ping-pong latency p99 | 2 | 2 | 2.48 µs | 2.46 µs | **350 ns** | 581 ns | lower is better |
-| Select over 2 channels, capacity 1024 | 3 | 3 | 19.8M | **37.8M** | 13.3M | 13.8M | messages/s |
-| Select over 2 channels, capacity 1 | 3 | 3 | 5.00M | 4.58M | 5.88M | **6.74M** | messages/s |
+| 1 sender → 1 receiver, capacity 1024 | 2 | 2 | 13.4M | **136M** | 36.8M | 29.4M | messages/s |
+| 1 sender → 1 receiver, capacity 1 | 2 | 2 | 5.29M | **20.5M** | 7.21M | 11.2M | messages/s |
+| 4 senders → 1 receiver, capacity 1024 | 5 | 5 | 8.76M | **102M** | 40.0M | 26.6M | messages/s |
+| 4 senders → 1 receiver, capacity 1 | 5 | 5 | 5.23M | **19.7M** | 5.78M | 10.1M | messages/s |
+| Ping-pong | 2 | 2 | 4.10M | **7.33M** | 4.18M | 3.89M | round trips/s |
+| Ping-pong latency p50 | 2 | 2 | 150 ns | **86 ns** | 281 ns | 250 ns | lower is better |
+| Ping-pong latency p99 | 2 | 2 | 2.18 µs | 2.13 µs | **301 ns** | 451 ns | lower is better |
+| Select over 2 channels, capacity 1024 | 3 | 3 | 20.6M | **41.5M** | 13.4M | 13.9M | messages/s |
+| Select over 2 channels, capacity 1 | 3 | 3 | 5.81M | 5.37M | 6.33M | **7.25M** | messages/s |
 
 ### Tasks, CPU, locks and memory
 
 | Test | Tokio/Go tasks | Crossbeam threads | Tokio | Tuned Tokio | Crossbeam | Go | Unit |
 |---|---:|---:|---:|---:|---:|---:|---|
-| Spawn and join, 10K tasks | 10K | 10K | 3.59M | 5.90M | 26.0K | 5.39M | tasks/s |
-| Spawn and join, 1M tasks | 1M | — | 3.39M | 4.91M | — | **5.32M** | tasks/s |
-| CPU-heavy hashing | 256 | 12 | 99.5M | 96.0M | 94.6M | 90.6M | items/s |
-| Lock contention, 8 workers | 8 | 8 | 8.49M | **75.1M** | 28.4M | 24.8M | increments/s |
-| Memory per idle task, 10K tasks | 10K | 10K | 410 B | **281 B** | 9.92 KiB | 2.78 KiB | lower is better |
-| Memory per idle task, 1M tasks | 1M | — | 384 B | **257 B** | — | 2.69 KiB | lower is better |
+| Spawn and join, 10K tasks | 10K | 10K | 3.93M | **6.08M** | 29.2K | 5.37M | tasks/s |
+| Spawn and join, 1M tasks | 1M | — | 3.85M | 5.42M | — | **5.90M** | tasks/s |
+| CPU-heavy hashing | 256 | 12 | 114M | **116M** | 115M | 109M | items/s |
+| Lock contention, 8 workers | 8 | 8 | 9.71M | **84.1M** | 32.6M | 27.1M | increments/s |
+| Memory per idle task, 10K tasks | 10K | 10K | 460 B | **233 B** | 9.93 KiB | 2.78 KiB | lower is better |
+| Memory per idle task, 1M tasks | 1M | — | 385 B | **257 B** | — | 2.69 KiB | lower is better |
 
 — : not run (Crossbeam is capped at 20,000 threads).
 
@@ -71,20 +73,22 @@ Tokio `mpsc`; tuned Tokio kanal (`mpsc` for select); Crossbeam and Go use their 
 - **Drain loop (tuned Tokio):** up to 256 queued messages per wake-up via `try_recv`. About 2× on kanal 1 → 1 with
   2+ threads, +25–45% elsewhere. Any limit from 16 to 1024 performs the same, so 256 is arbitrary. Cause not
   isolated: context switches, CPU time and per-message channel work are unchanged.
-- **Tuned Tokio 1 → 1** is about as fast on 1 thread as on 12 (135M vs 129M, ~1.3 cores): Tokio's LIFO slot
+- **Tuned Tokio 1 → 1** is about as fast on 1 thread as on 12 (143M vs 136M, ~1.3 cores): Tokio's LIFO slot
   runs the woken task on the same worker, so producer and consumer mostly share one thread.
+- **Tokio `mpsc` as designed (4 → 1):** no faster than with one sender (8.76M vs 13.4M for 1 → 1 at 12
+  threads); kanal is 4–12× faster.
 - **Capacity 1:** Go runs the woken goroutine next on the same thread, so it's flat from 1 to 12 threads
-  (10.3M–11.2M). Crossbeam on 1 CPU pays a kernel context switch per hop (107K–153K/s). Tuned Tokio's lead comes
+  (10.9M–11.5M). Crossbeam on 1 CPU pays a kernel context switch per hop (110K–154K/s). Tuned Tokio's lead comes
   from kanal (3× on 1 → 1, 5–10× on 4 → 4); the drain loop adds ≤7%.
-- **Ping-pong:** Tokio's median is about half of Go's (141 vs 271 ns on 1 thread): resuming a task is a function
-  call, Go switches stacks. Tokio's 2.3–2.5 µs p99 appears only with 2+ workers, likely from waking idle workers.
+- **Ping-pong:** Tokio's median is about half of Go's (141 vs 270 ns on 1 thread): resuming a task is a function
+  call, Go switches stacks. Tokio's ~2.2 µs p99 appears only with 2+ workers, likely from waking idle workers.
 - **Select:** `recv_many` batching gives Tokio 1.5–1.8× at capacity 1024 and costs 3–8% at capacity 1, where Go
   wins.
 - **Spawn:** Go reuses finished goroutines. Default Tokio keeps each finished task until its `JoinHandle` is
-  dropped: 1M tasks peak at 254–255 MiB, vs 19 MiB (tuned Tokio) and 24 MiB (Go) at 12 threads. On 1 thread all
-  1M tasks queue before any runs (291 MiB tuned Tokio, 194 MiB Go). Crossbeam's thread per task is 140–230× slower.
-- **CPU-heavy:** Tokio and Crossbeam tie. Go is ~4% slower on 1 thread and ~10% on 6; turning off async preemption
-  didn't change it. At 12 threads runs varied 8–11%, so no clear order.
+  dropped: 1M tasks peak at 254–255 MiB, vs 17 MiB (tuned Tokio) and 24 MiB (Go) at 12 threads. On 1 thread all
+  1M tasks queue before any runs (291 MiB tuned Tokio, 203 MiB Go). Crossbeam's thread per task is 135–210× slower.
+- **CPU-heavy:** Tokio and Crossbeam tie. Go is ~6% slower on 1 thread, ~10% on 6 and ~5% on 12; turning off
+  async preemption didn't change it.
 - **Lock contention:** Tokio's `Mutex` is FIFO-fair and hands the lock to the next task through the scheduler.
   `std::sync::Mutex` and Go's `sync.Mutex` spin briefly, then sleep. `parking_lot` lets a running thread grab a
   released lock (fair hand-off every 0–1 ms). In tuned Tokio it blocks the worker thread, which is fine because
@@ -97,7 +101,7 @@ Tokio `mpsc`; tuned Tokio kanal (`mpsc` for select); Crossbeam and Go use their 
 
 | Workload | Tokio | Tuned Tokio | Crossbeam | Go |
 |---|---|---|---|---|
-| `spsc`, `mpmc` | `mpsc` / `async-channel` ¹ | kanal + drain up to 256 per wake-up | `channel::bounded` | `chan` |
+| `spsc`, `mpsc`, `mpmc` | `mpsc` / `async-channel` ¹ | kanal + drain up to 256 per wake-up | `channel::bounded` | `chan` |
 | `pingpong` | `mpsc(1)` | kanal `bounded(1)` | `bounded(1)` | `chan` cap 1 |
 | `spawn` | `tokio::spawn` + `JoinHandle` | `tokio::spawn`, results in a shared slice | scoped OS threads | goroutines + `WaitGroup` |
 | `cpu` | tasks on the runtime | same | work-stealing `deque` pool | goroutines |
@@ -109,7 +113,7 @@ Tokio `mpsc`; tuned Tokio kanal (`mpsc` for select); Crossbeam and Go use their 
 1. Tokio has no MPMC channel (`broadcast` sends every message to every receiver).
 2. Crossbeam has no mutex.
 
-Capacity: 1024 for `spsc`, `mpmc`, `select`; 1 for the `-cap1` cases and `pingpong` (Tokio can't do 0).
+Capacity: 1024 for `spsc`, `mpsc`, `mpmc`, `select`; 1 for the `-cap1` cases and `pingpong` (Tokio can't do 0).
 
 `rust/tokio-variants-bench` turns on single Tokio tweaks (`--impls tokio,tokio+kanal,tokio+kanal+batch`). Its
 generic wrappers make it slower than `tokio-tuned`.
