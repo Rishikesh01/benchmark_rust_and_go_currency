@@ -46,6 +46,7 @@ fn main() {
     let report = match a.workload.as_str() {
         "spsc" => spsc(&a),
         "mpmc" => mpmc(&a),
+        "mpsc" => many_to_one(&a),
         "pingpong" => pingpong(&a),
         "spawn" => spawn(&a),
         "cpu" => cpu(&a),
@@ -80,6 +81,43 @@ fn spsc(a: &Args) -> Report {
         producer.join().unwrap();
         let sum = consumer.join().unwrap();
         Report::ok(IMPL, a, n, line.elapsed(), sum)
+    })
+    .unwrap()
+}
+
+/// Several senders, one receiver.
+fn many_to_one(a: &Args) -> Report {
+    let per = a.size / a.producers as u64;
+    let total = per * a.producers as u64;
+    let (tx, rx) = bounded::<u64>(a.capacity);
+    let line = StartLine::new(a.producers + 1);
+    thread::scope(|s| {
+        let consumer = s.spawn(|_| {
+            line.go();
+            let mut sum = 0u64;
+            for v in rx.iter() {
+                sum = sum.wrapping_add(v);
+            }
+            sum
+        });
+        let producers: Vec<_> = (0..a.producers as u64)
+            .map(|p| {
+                let (tx, line) = (tx.clone(), &line);
+                s.spawn(move |_| {
+                    line.go();
+                    let base = p * per;
+                    for i in 0..per {
+                        tx.send(base + i).unwrap();
+                    }
+                })
+            })
+            .collect();
+        drop(tx);
+        for p in producers {
+            p.join().unwrap();
+        }
+        let sum = consumer.join().unwrap();
+        Report::ok(IMPL, a, total, line.elapsed(), sum)
     })
     .unwrap()
 }

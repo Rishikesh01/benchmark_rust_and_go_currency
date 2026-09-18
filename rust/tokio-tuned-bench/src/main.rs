@@ -5,8 +5,8 @@
 //! `tokio-variants-bench` and kept only where it helped:
 //!
 //! - mimalloc as the global allocator (spawn ~2x faster, idle tasks ~1/3 smaller)
-//! - kanal channels instead of tokio mpsc / async-channel (spsc, mpmc, pingpong)
-//! - consumers take every already-queued message per wake-up (spsc, mpmc, select)
+//! - kanal channels instead of tokio mpsc / async-channel (spsc, mpsc, mpmc, pingpong)
+//! - consumers take every already-queued message per wake-up (spsc, mpsc, mpmc, select)
 //! - no JoinHandles when spawning many tiny tasks (spawn)
 //! - parking_lot::Mutex, never held across `.await` (mutex)
 //!
@@ -41,6 +41,7 @@ async fn run(a: Args) -> Report {
     match a.workload.as_str() {
         "spsc" => spsc(a).await,
         "mpmc" => mpmc(a).await,
+        "mpsc" => many_to_one(a).await,
         "pingpong" => pingpong(a).await,
         "spawn" => spawn(a).await,
         "cpu" => cpu(a).await,
@@ -80,6 +81,31 @@ async fn spsc(a: Args) -> Report {
     producer.await.unwrap();
     let sum = consumer.await.unwrap();
     Report::ok(IMPL, &a, n, start.elapsed(), sum)
+}
+
+/// Several senders, one receiver.
+async fn many_to_one(a: Args) -> Report {
+    let per = a.size / a.producers as u64;
+    let total = per * a.producers as u64;
+    let (tx, rx) = kanal::bounded_async::<u64>(a.capacity);
+    let mut producers = Vec::with_capacity(a.producers);
+    let start = Instant::now();
+    let consumer = tokio::spawn(drain_sum(rx));
+    for p in 0..a.producers as u64 {
+        let tx = tx.clone();
+        producers.push(tokio::spawn(async move {
+            let base = p * per;
+            for i in 0..per {
+                tx.send(base + i).await.unwrap();
+            }
+        }));
+    }
+    drop(tx);
+    for p in producers {
+        p.await.unwrap();
+    }
+    let sum = consumer.await.unwrap();
+    Report::ok(IMPL, &a, total, start.elapsed(), sum)
 }
 
 async fn mpmc(a: Args) -> Report {

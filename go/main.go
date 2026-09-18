@@ -18,6 +18,8 @@ func main() {
 		r = spsc(a)
 	case "mpmc":
 		r = mpmc(a)
+	case "mpsc":
+		r = manyToOne(a)
 	case "pingpong":
 		r = pingpong(a)
 	case "spawn":
@@ -58,6 +60,37 @@ func spsc(a Args) *Report {
 	}()
 	wg.Wait()
 	return okReport(a, n, time.Since(start), sum)
+}
+
+// Several senders, one receiver.
+func manyToOne(a Args) *Report {
+	per := a.Size / uint64(a.Producers)
+	total := per * uint64(a.Producers)
+	ch := make(chan uint64, a.Capacity)
+	var sum uint64
+	var producers, consumer sync.WaitGroup
+	start := time.Now()
+	consumer.Add(1)
+	go func() {
+		defer consumer.Done()
+		for v := range ch {
+			sum += v
+		}
+	}()
+	producers.Add(a.Producers)
+	for p := 0; p < a.Producers; p++ {
+		go func(p uint64) {
+			defer producers.Done()
+			base := p * per
+			for i := uint64(0); i < per; i++ {
+				ch <- base + i
+			}
+		}(uint64(p))
+	}
+	producers.Wait()
+	close(ch)
+	consumer.Wait()
+	return okReport(a, total, time.Since(start), sum)
 }
 
 func mpmc(a Args) *Report {

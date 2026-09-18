@@ -43,10 +43,10 @@ TOKIO_VARIANTS_BINARY = ROOT / "rust/target/release/tokio-variants-bench"
 TOKIO_VARIANTS_MIMALLOC_BINARY = ROOT / "rust/target/release/tokio-variants-bench-mimalloc"
 TOKIO_VARIANTS = {
     "mimalloc": (None, "mimalloc global allocator"),
-    "batch": ({"spsc", "mpmc", "select"}, "receive up to 256 queued messages per wake-up"),
+    "batch": ({"spsc", "mpsc", "mpmc", "select"}, "receive up to 256 queued messages per wake-up"),
     "unconstrained": ({"spsc", "select", "pingpong", "mutex"}, "tasks opt out of Tokio's co-operative yield budget"),
-    "kanal": ({"spsc", "mpmc", "pingpong"}, "kanal async channels instead of tokio/async-channel"),
-    "flume": ({"spsc", "mpmc", "pingpong"}, "flume async channels instead of tokio/async-channel"),
+    "kanal": ({"spsc", "mpsc", "mpmc", "pingpong"}, "kanal async channels instead of tokio/async-channel"),
+    "flume": ({"spsc", "mpsc", "mpmc", "pingpong"}, "flume async channels instead of tokio/async-channel"),
     "join": ({"spsc", "pingpong"}, "both sides as futures in one task via join! (no parallelism)"),
     "no-handles": ({"spawn"}, "no JoinHandles; tasks write results into a shared slice, like the Go version"),
     "biased": ({"select"}, "select! polls branches in a fixed order instead of randomly"),
@@ -61,6 +61,8 @@ U64 = 1 << 64
 WORKLOAD_PARAMS = {
     "spsc": {"capacity": 1024},
     "spsc-cap1": {"capacity": 1},
+    "mpsc": {"capacity": 1024, "producers": 4},
+    "mpsc-cap1": {"capacity": 1, "producers": 4},
     "mpmc": {"capacity": 1024, "producers": 4, "consumers": 4},
     "mpmc-cap1": {"capacity": 1, "producers": 4, "consumers": 4},
     # A prime stride, so samples can't line up with Tokio's co-op budget of 128 polls.
@@ -74,7 +76,7 @@ WORKLOAD_PARAMS = {
 }
 
 # Cases that run another workload's code with different parameters.
-CASE_WORKLOAD = {"spsc-cap1": "spsc", "mpmc-cap1": "mpmc", "select-cap1": "select"}
+CASE_WORKLOAD = {"spsc-cap1": "spsc", "mpsc-cap1": "mpsc", "mpmc-cap1": "mpmc", "select-cap1": "select"}
 
 
 def program_workload(case: str) -> str:
@@ -91,6 +93,8 @@ PROFILES = {
         "sizes": {
             "spsc": [200_000],
             "spsc-cap1": [20_000],
+            "mpsc": [200_000],
+            "mpsc-cap1": [20_000],
             "mpmc": [200_000],
             "mpmc-cap1": [20_000],
             "pingpong": [20_000],
@@ -111,6 +115,8 @@ PROFILES = {
             "spsc": [10_000_000],
             # Capacity 1 can need a thread switch per message (Crossbeam: ~130K msgs/s on 1 CPU).
             "spsc-cap1": [1_000_000],
+            "mpsc": [10_000_000],
+            "mpsc-cap1": [1_000_000],
             "mpmc": [10_000_000],
             "mpmc-cap1": [1_000_000],
             "pingpong": [1_000_000],
@@ -466,7 +472,7 @@ def expected_checksum(workload: str, size: int, params: dict) -> int | None:
     match workload:
         case "spsc" | "spawn":
             return triangle(size)
-        case "mpmc":
+        case "mpmc" | "mpsc":
             return triangle(size // params["producers"] * params["producers"])
         case "pingpong":
             return (2 * size) % U64

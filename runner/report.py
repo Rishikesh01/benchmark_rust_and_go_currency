@@ -15,11 +15,14 @@ from pathlib import Path
 
 CV_WARN_PCT = 5.0
 
-WORKLOAD_ORDER = ["spsc", "spsc-cap1", "mpmc", "mpmc-cap1", "pingpong", "spawn", "cpu", "select", "select-cap1", "mutex", "idle"]
+WORKLOAD_ORDER = ["spsc", "spsc-cap1", "mpsc", "mpsc-cap1", "mpmc", "mpmc-cap1", "pingpong", "spawn", "cpu", "select", "select-cap1", "mutex", "idle"]
 WORKLOAD_INFO = {
     "spsc": ("One sender, one receiver", "Raw message rate through a bounded channel of capacity {capacity}.", "messages/s"),
     "spsc-cap1": ("One sender, one receiver, capacity 1",
                   "The same test with a channel of capacity {capacity}, so nearly every message is a hand-off between tasks.", "messages/s"),
+    "mpsc": ("Many senders, one receiver", "{producers} senders and one receiver sharing a bounded channel of capacity {capacity}.", "messages/s"),
+    "mpsc-cap1": ("Many senders, one receiver, capacity 1",
+                  "{producers} senders and one receiver sharing a channel of capacity {capacity}.", "messages/s"),
     "mpmc": ("Many senders, many receivers", "{producers} senders and {consumers} receivers sharing one bounded channel of capacity {capacity}.", "messages/s"),
     "mpmc-cap1": ("Many senders, many receivers, capacity 1",
                   "{producers} senders and {consumers} receivers sharing one channel of capacity {capacity}.", "messages/s"),
@@ -259,6 +262,8 @@ DISPLAY_NAMES = {"tokio": "Tokio", "tokio-tuned": "Tuned Tokio", "crossbeam": "C
 ROW_LABELS = {
     "spsc": "1 sender → 1 receiver, capacity {capacity}",
     "spsc-cap1": "1 sender → 1 receiver, capacity {capacity}",
+    "mpsc": "{producers} senders → 1 receiver, capacity {capacity}",
+    "mpsc-cap1": "{producers} senders → 1 receiver, capacity {capacity}",
     "mpmc": "{producers} senders → {consumers} receivers, capacity {capacity}",
     "mpmc-cap1": "{producers} senders → {consumers} receivers, capacity {capacity}",
     "pingpong": "Ping-pong",
@@ -281,7 +286,7 @@ TABLE_SECTIONS = [
     ("Single-receiver channels",
      "One receiver per channel. Tokio uses its MPSC channel, `tokio::sync::mpsc` (so does tuned Tokio for select); "
      "tuned Tokio otherwise uses kanal, and Crossbeam and Go use their MPMC channels with a single receiver.",
-     {"spsc", "spsc-cap1", "pingpong", "select", "select-cap1"}),
+     {"spsc", "spsc-cap1", "mpsc", "mpsc-cap1", "pingpong", "select", "select-cap1"}),
     ("Tasks, CPU, locks and memory", "", None),
 ]
 
@@ -296,6 +301,8 @@ def concurrency(workload: str, params: dict, size: int, threads: int) -> tuple[s
     n = {"spsc": 2, "spsc-cap1": 2, "pingpong": 2, "select": 3, "select-cap1": 3}.get(workload)
     if workload in ("mpmc", "mpmc-cap1"):
         n = params["producers"] + params["consumers"]
+    elif workload in ("mpsc", "mpsc-cap1"):
+        n = params["producers"] + 1
     elif workload == "mutex":
         n = params["workers"]
     return (str(n), str(n)) if n is not None else ("", "")

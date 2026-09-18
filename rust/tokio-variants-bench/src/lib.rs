@@ -19,12 +19,12 @@ use tokio::task::JoinHandle;
 /// Tuning variants and the workloads each one applies to.
 const VARIANTS: &[(&str, &[&str])] = &[
     // Take up to BATCH already-queued messages per wake-up.
-    ("batch", &["spsc", "mpmc", "select"]),
+    ("batch", &["spsc", "mpsc", "mpmc", "select"]),
     // Opt tasks out of Tokio's co-operative scheduling budget.
     ("unconstrained", &["spsc", "select", "pingpong", "mutex"]),
     // Swap the channel crate.
-    ("kanal", &["spsc", "mpmc", "pingpong"]),
-    ("flume", &["spsc", "mpmc", "pingpong"]),
+    ("kanal", &["spsc", "mpsc", "mpmc", "pingpong"]),
+    ("flume", &["spsc", "mpsc", "mpmc", "pingpong"]),
     // Run both sides as futures in one task with join! (concurrency without parallelism).
     ("join", &["spsc", "pingpong"]),
     // Spawn without JoinHandles; tasks write into a shared slice like the Go version.
@@ -89,6 +89,7 @@ async fn run(a: Args) -> Report {
     match a.workload.as_str() {
         "spsc" => spsc(a).await,
         "mpmc" => mpmc(a).await,
+        "mpsc" => many_to_one(a).await,
         "pingpong" => pingpong(a).await,
         "spawn" => spawn(a).await,
         "cpu" => cpu(a).await,
@@ -318,6 +319,26 @@ async fn spsc(a: Args) -> Report {
         (sum, start.elapsed())
     });
     Report::ok(name(), &a, n, elapsed, sum)
+}
+
+/// Several senders, one receiver: `tokio::sync::mpsc` by default.
+async fn many_to_one(a: Args) -> Report {
+    let per = a.size / a.producers as u64;
+    let batch = a.has("batch");
+    let (sum, elapsed) = with_channel!(chan(&a, Chan::Tokio), [Tokio, Kanal, Flume], a.capacity, |tx, rx| {
+        let mut producers = Vec::with_capacity(a.producers);
+        let start = Instant::now();
+        let consumer = spawn_on(&a, consume(rx, batch));
+        for p in 0..a.producers as u64 {
+            producers.push(spawn_on(&a, produce(tx.clone(), p * per..(p + 1) * per)));
+        }
+        drop(tx);
+        for p in producers {
+            p.await.unwrap();
+        }
+        (consumer.await.unwrap(), start.elapsed())
+    });
+    Report::ok(name(), &a, per * a.producers as u64, elapsed, sum)
 }
 
 /// Tokio's own mpsc has a single receiver, so MPMC defaults to `async-channel`.

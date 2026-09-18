@@ -26,6 +26,7 @@ async fn run(a: Args) -> Report {
     match a.workload.as_str() {
         "spsc" => spsc(a).await,
         "mpmc" => mpmc(a).await,
+        "mpsc" => many_to_one(a).await,
         "pingpong" => pingpong(a).await,
         "spawn" => spawn(a).await,
         "cpu" => cpu(a).await,
@@ -55,6 +56,37 @@ async fn spsc(a: Args) -> Report {
     producer.await.unwrap();
     let sum = consumer.await.unwrap();
     Report::ok(IMPL, &a, n, start.elapsed(), sum)
+}
+
+/// Several senders, one receiver: what `tokio::sync::mpsc` is built for.
+async fn many_to_one(a: Args) -> Report {
+    let per = a.size / a.producers as u64;
+    let total = per * a.producers as u64;
+    let (tx, mut rx) = mpsc::channel::<u64>(a.capacity);
+    let mut producers = Vec::with_capacity(a.producers);
+    let start = Instant::now();
+    let consumer = tokio::spawn(async move {
+        let mut sum = 0u64;
+        while let Some(v) = rx.recv().await {
+            sum = sum.wrapping_add(v);
+        }
+        sum
+    });
+    for p in 0..a.producers as u64 {
+        let tx = tx.clone();
+        producers.push(tokio::spawn(async move {
+            let base = p * per;
+            for i in 0..per {
+                tx.send(base + i).await.unwrap();
+            }
+        }));
+    }
+    drop(tx);
+    for p in producers {
+        p.await.unwrap();
+    }
+    let sum = consumer.await.unwrap();
+    Report::ok(IMPL, &a, total, start.elapsed(), sum)
 }
 
 /// Tokio's own mpsc has a single receiver, so MPMC uses `async-channel`.
