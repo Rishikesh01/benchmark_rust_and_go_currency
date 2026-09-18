@@ -286,6 +286,55 @@ TABLE_SECTIONS = [
 ]
 
 
+def concurrency(workload: str, params: dict, size: int, threads: int) -> tuple[str, str]:
+    """(Tokio tasks or Go goroutines, Crossbeam OS threads) doing a test's work, not counting the one that starts
+    the test and waits for it."""
+    if workload == "cpu":
+        return fmt_count(params["tasks"]), str(threads)
+    if workload in ("spawn", "idle"):
+        return fmt_count(size), fmt_count(size)
+    n = {"spsc": 2, "spsc-cap1": 2, "pingpong": 2, "select": 3, "select-cap1": 3}.get(workload)
+    if workload in ("mpmc", "mpmc-cap1"):
+        n = params["producers"] + params["consumers"]
+    elif workload == "mutex":
+        n = params["workers"]
+    return (str(n), str(n)) if n is not None else ("", "")
+
+
+def concurrency_blurb(workload: str, params: dict) -> str:
+    """One sentence for the HTML report saying what runs the test."""
+    if workload == "cpu":
+        return (f"Runs as {params['tasks']} Tokio tasks or goroutines; Crossbeam uses one OS thread per pinned CPU, "
+                f"sharing the {params['tasks']} chunks.")
+    if workload in ("spawn", "idle"):
+        return "One Tokio task, goroutine or Crossbeam OS thread per item."
+    n = concurrency(workload, params, 0, 0)[0]
+    return f"Runs as {n} Tokio tasks, {n} goroutines or {n} Crossbeam OS threads." if n else ""
+
+
+def count_columns(impls: list[str]) -> list[str]:
+    """Headers of the task and OS-thread count columns that apply to these implementations."""
+    bases = {impl.split("+")[0] for impl in impls}
+    task_owners = [name for base, name in (("tokio", "Tokio"), ("tokio-tuned", "Tokio"), ("go", "Go")) if base in bases]
+    cols = []
+    if task_owners:
+        cols.append("/".join(dict.fromkeys(task_owners)) + " tasks")
+    if "crossbeam" in bases:
+        cols.append("Crossbeam threads")
+    return cols
+
+
+def count_cells(impls: list[str], spec: tuple, threads: int) -> list[str]:
+    workload, by_threads = spec[0], spec[-1]
+    first = next(iter(by_threads.values()))[0]
+    tasks, os_threads = concurrency(workload, first["params"], first["size"], threads)
+    if any(r["impl"] == "crossbeam" and r["status"] not in SHOWN_STATUSES for r in by_threads.get(threads, [])):
+        os_threads = "—"
+    cols = count_columns(impls)
+    return ([tasks] if any(c.endswith("tasks") for c in cols) else []) + (
+        [os_threads] if "Crossbeam threads" in cols else [])
+
+
 def sectioned(specs: list[tuple]) -> list[tuple[str, str, list[tuple]]]:
     """Split table specs into TABLE_SECTIONS, dropping empty sections."""
     named = set().union(*(w for _, _, w in TABLE_SECTIONS if w))
@@ -316,6 +365,14 @@ def render_markdown(meta: dict, summary: list[dict]) -> str:
         f"⚠ means the runs varied by more than {CV_WARN_PCT:.0f}%; (n/{meta['reps']}) means only n runs succeeded. "
         "Confidence intervals, min/max, CPU time and p99.9 latency are in `summary.csv`.",
     ]
+    out += [
+        "",
+        "Threads is N: each run is pinned to N logical CPUs, Tokio gets N worker threads and Go gets `GOMAXPROCS=N`. "
+        "Tokio runs the test's tasks and Go its goroutines on those threads; Crossbeam has no tasks and starts one OS "
+        "thread per sender, receiver, worker or spawned task instead (the CPU test uses N), all sharing the N CPUs. "
+        "The task and thread columns give those counts. Throughput is for the whole test, all its tasks or threads "
+        "together, not per thread or per task; latency is per round trip and memory is per idle task.",
+    ]
     if meta.get("physical_cores"):
         p = meta["physical_cores"]
         out += ["", f"Up to {p} threads, each thread has its own physical core; above {p}, threads share cores (SMT)."]
@@ -328,20 +385,25 @@ def render_markdown(meta: dict, summary: list[dict]) -> str:
         if not rows:
             continue
         out += ["", f"### {title}", ""] + ([note, ""] if note else [])
-        out += [md_row(["Test"] + [display_name(i) for i in impls] + ["Unit"]),
-                md_row(["---"] + ["---:"] * len(impls) + ["---"])]
-        for _, label, unit, key, fmt, lower_better, by_threads in rows:
-            out.append(md_row([label] + table_cells(impls, by_threads[top], key, fmt, lower_better) + [unit]))
+        counts = count_columns(impls)
+        out += [md_row(["Test"] + counts + [display_name(i) for i in impls] + ["Unit"]),
+                md_row(["---"] + ["---:"] * (len(counts) + len(impls)) + ["---"])]
+        for spec in rows:
+            _, label, unit, key, fmt, lower_better, by_threads = spec
+            out.append(md_row([label] + count_cells(impls, spec, top)
+                              + table_cells(impls, by_threads[top], key, fmt, lower_better) + [unit]))
 
     if len(threads) > 1:
         out += ["", "## All thread counts"]
         for title, _, section in sectioned(specs):
+            counts = count_columns(impls)
             out += ["", f"### {title}", "",
-                    md_row(["Test", "Threads"] + [display_name(i) for i in impls] + ["Unit"]),
-                    md_row(["---", "---:"] + ["---:"] * len(impls) + ["---"])]
-            for _, label, unit, key, fmt, lower_better, by_threads in section:
+                    md_row(["Test", "Threads"] + counts + [display_name(i) for i in impls] + ["Unit"]),
+                    md_row(["---", "---:"] + ["---:"] * (len(counts) + len(impls)) + ["---"])]
+            for spec in section:
+                _, label, unit, key, fmt, lower_better, by_threads = spec
                 for n, (t, rows) in enumerate(sorted(by_threads.items())):
-                    cells = table_cells(impls, rows, key, fmt, lower_better)
+                    cells = count_cells(impls, spec, t) + table_cells(impls, rows, key, fmt, lower_better)
                     out.append(md_row([label if n == 0 else "", str(t)] + cells + [unit if n == 0 else ""]))
 
     notes = {}
@@ -487,7 +549,7 @@ def render_html(meta: dict, summary: list[dict]) -> str:
         sections.append({
             "workload": workload,
             "title": title,
-            "blurb": blurb,
+            "blurb": " ".join(x for x in (blurb, concurrency_blurb(workload, params)) if x),
             "unit": unit,
             "sizes": [
                 {"size": size, "points": [

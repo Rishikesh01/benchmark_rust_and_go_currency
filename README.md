@@ -27,29 +27,19 @@ runs. Tokio and Go run many lightweight tasks on a few OS threads and switch bet
 - **Crossbeam**: every sender, receiver, worker and spawned task is its own OS thread. A thread that has to wait
   spins briefly, yields its CPU a few times, then sleeps on a futex until another thread wakes it.
 
-The thread count in the results is N: each run is pinned to N logical CPUs, Tokio gets N worker threads and Go
-gets `GOMAXPROCS=N`. Crossbeam's thread count comes from the workload instead, and those threads share the N CPUs;
-only `cpu` sizes its pool to N.
-
-| Workload | Tokio tasks, Go goroutines | Crossbeam OS threads |
-|---|---|---|
-| `spsc`, `pingpong` | 2 | 2 |
-| `select` | 3 (2 senders, 1 receiver) | 3 |
-| `mpmc` | 8 (4 senders, 4 receivers) | 8 |
-| `mutex` | 8 | 8 |
-| `cpu` | 256, one per chunk | N, sharing the 256 chunks through work-stealing deques |
-| `spawn` | 10K or 1M | 10K (1M is skipped) |
-| `idle` | 10K, 100K or 1M | 10K (larger counts are skipped) |
-
 With fewer CPUs than threads, Crossbeam's threads take turns through the kernel while Tokio and Go switch tasks
 inside one thread; the 1-thread results for capacity 1 and ping-pong show the difference.
 
 ## Results
 
 AMD Ryzen 5 5625U laptop (6 cores / 12 threads), `performance` governor, on AC power. Rust 1.98.0
-(`rustc 1.98.0 (88d9e12ae 2026-08-18)`, release build) and Go 1.27.0 (`go1.27.0 linux/amd64`). Medians of 10
-runs at 12 threads. **Bold** marks a clear winner: its confidence interval doesn't overlap the runner-up's.
-Every thread count, confidence intervals, CPU time and p99.9 latency:
+(`rustc 1.98.0 (88d9e12ae 2026-08-18)`, release build) and Go 1.27.0 (`go1.27.0 linux/amd64`). Medians of 10 runs
+at 12 threads: each run is pinned to 12 logical CPUs, Tokio gets 12 worker threads and Go gets `GOMAXPROCS=12`.
+The Tokio/Go tasks column is how many tasks or goroutines the test runs on those threads, and the Crossbeam
+threads column is how many OS threads Crossbeam starts instead, sharing the same 12 CPUs. Throughput is for the
+whole test, all its tasks or threads together, not per thread or per task; latency is per round trip and memory is
+per idle task. **Bold** marks a clear winner: its confidence interval doesn't overlap the runner-up's. Every
+thread count, confidence intervals, CPU time and p99.9 latency:
 [`summary.md`](results/full-20260918-190906/summary.md),
 [`summary.csv`](results/full-20260918-190906/summary.csv).
 
@@ -58,38 +48,38 @@ Every thread count, confidence intervals, CPU time and p99.9 latency:
 Every implementation uses a bounded multi-producer, multi-consumer channel: async-channel (Tokio), kanal (tuned
 Tokio), crossbeam-channel and Go `chan`.
 
-| Test | Tokio | Tuned Tokio | Crossbeam | Go | Unit |
-|---|---:|---:|---:|---:|---|
-| 4 senders → 4 receivers, capacity 1024 | 9.32M | **78.5M** | 24.3M | 17.6M | messages/s |
-| 4 senders → 4 receivers, capacity 1 | 1.74M | **17.4M** | 4.62M | 5.89M | messages/s |
+| Test | Tokio/Go tasks | Crossbeam threads | Tokio | Tuned Tokio | Crossbeam | Go | Unit |
+|---|---:|---:|---:|---:|---:|---:|---|
+| 4 senders → 4 receivers, capacity 1024 | 8 | 8 | 9.32M | **78.5M** | 24.3M | 17.6M | messages/s |
+| 4 senders → 4 receivers, capacity 1 | 8 | 8 | 1.74M | **17.4M** | 4.62M | 5.89M | messages/s |
 
 ### Single-receiver channels
 
 One receiver per channel. Tokio uses its MPSC channel, `tokio::sync::mpsc` (so does tuned Tokio for select); tuned
 Tokio otherwise uses kanal, and Crossbeam and Go use their MPMC channels with a single receiver.
 
-| Test | Tokio | Tuned Tokio | Crossbeam | Go | Unit |
-|---|---:|---:|---:|---:|---|
-| 1 sender → 1 receiver, capacity 1024 | 13.2M | **129M** | 33.9M | 28.0M | messages/s |
-| 1 sender → 1 receiver, capacity 1 | 4.63M | **17.3M** | 6.70M | 10.4M | messages/s |
-| Ping-pong | 3.85M | **6.25M** | 3.81M | 3.58M | round trips/s |
-| Ping-pong latency p50 | 151 ns | **100 ns** | 281 ns | 275 ns | lower is better |
-| Ping-pong latency p99 | 2.48 µs | 2.46 µs | **350 ns** | 581 ns | lower is better |
-| Select over 2 channels, capacity 1024 | 19.8M | **37.8M** | 13.3M | 13.8M | messages/s |
-| Select over 2 channels, capacity 1 | 5.00M | 4.58M | 5.88M | **6.74M** | messages/s |
+| Test | Tokio/Go tasks | Crossbeam threads | Tokio | Tuned Tokio | Crossbeam | Go | Unit |
+|---|---:|---:|---:|---:|---:|---:|---|
+| 1 sender → 1 receiver, capacity 1024 | 2 | 2 | 13.2M | **129M** | 33.9M | 28.0M | messages/s |
+| 1 sender → 1 receiver, capacity 1 | 2 | 2 | 4.63M | **17.3M** | 6.70M | 10.4M | messages/s |
+| Ping-pong | 2 | 2 | 3.85M | **6.25M** | 3.81M | 3.58M | round trips/s |
+| Ping-pong latency p50 | 2 | 2 | 151 ns | **100 ns** | 281 ns | 275 ns | lower is better |
+| Ping-pong latency p99 | 2 | 2 | 2.48 µs | 2.46 µs | **350 ns** | 581 ns | lower is better |
+| Select over 2 channels, capacity 1024 | 3 | 3 | 19.8M | **37.8M** | 13.3M | 13.8M | messages/s |
+| Select over 2 channels, capacity 1 | 3 | 3 | 5.00M | 4.58M | 5.88M | **6.74M** | messages/s |
 
 ### Tasks, CPU, locks and memory
 
-| Test | Tokio | Tuned Tokio | Crossbeam | Go | Unit |
-|---|---:|---:|---:|---:|---|
-| Spawn and join, 10K tasks | 3.59M | 5.90M | 26.0K | 5.39M | tasks/s |
-| Spawn and join, 1M tasks | 3.39M | 4.91M | — | **5.32M** | tasks/s |
-| CPU-heavy hashing | 99.5M | 96.0M | 94.6M | 90.6M | items/s |
-| Lock contention, 8 workers | 8.49M | **75.1M** | 28.4M | 24.8M | increments/s |
-| Memory per idle task, 10K tasks | 410 B | **281 B** | 9.92 KiB | 2.78 KiB | lower is better |
-| Memory per idle task, 1M tasks | 384 B | **257 B** | — | 2.69 KiB | lower is better |
+| Test | Tokio/Go tasks | Crossbeam threads | Tokio | Tuned Tokio | Crossbeam | Go | Unit |
+|---|---:|---:|---:|---:|---:|---:|---|
+| Spawn and join, 10K tasks | 10K | 10K | 3.59M | 5.90M | 26.0K | 5.39M | tasks/s |
+| Spawn and join, 1M tasks | 1M | — | 3.39M | 4.91M | — | **5.32M** | tasks/s |
+| CPU-heavy hashing | 256 | 12 | 99.5M | 96.0M | 94.6M | 90.6M | items/s |
+| Lock contention, 8 workers | 8 | 8 | 8.49M | **75.1M** | 28.4M | 24.8M | increments/s |
+| Memory per idle task, 10K tasks | 10K | 10K | 410 B | **281 B** | 9.92 KiB | 2.78 KiB | lower is better |
+| Memory per idle task, 1M tasks | 1M | — | 384 B | **257 B** | — | 2.69 KiB | lower is better |
 
-— : Crossbeam uses one OS thread per task and is capped at 20,000 threads.
+— : Crossbeam uses one OS thread per task and is capped at 20,000 threads, so these weren't run.
 
 ## Why
 
