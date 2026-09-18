@@ -193,7 +193,7 @@ the [kanal suite](https://github.com/fereidani/rust-channel-benchmarks), Tokio's
 
 ## Running
 
-Requires Linux, Rust, Go 1.22+, Python 3.10+, `taskset` and `lscpu`; numpy is optional. The published results
+Requires Linux, Rust 1.98+, Go 1.27+, Python 3.10+, `taskset` and `lscpu`; numpy is optional. The published results
 were built with Rust 1.98.0 and Go 1.27.0; other versions may give different numbers.
 
 ```sh

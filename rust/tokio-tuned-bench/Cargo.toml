@@ -1,6 +1,7 @@
 [package]
 name = "tokio-tuned-bench"
 edition.workspace = true
+rust-version.workspace = true
 version.workspace = true
 
 [dependencies]

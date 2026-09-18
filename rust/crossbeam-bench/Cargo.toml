@@ -1,6 +1,7 @@
 [package]
 name = "crossbeam-bench"
 edition.workspace = true
+rust-version.workspace = true
 version.workspace = true
 
 [dependencies]

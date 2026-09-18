@@ -1,9 +1,10 @@
 [workspace]
-resolver = "2"
+resolver = "3"
 members = ["common", "tokio-bench", "tokio-tuned-bench", "tokio-variants-bench", "crossbeam-bench"]
 
 [workspace.package]
-edition = "2021"
+edition = "2024"
+rust-version = "1.98"
 version = "0.1.0"
 
 [profile.release]
