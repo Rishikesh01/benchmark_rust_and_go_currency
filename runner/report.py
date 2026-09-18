@@ -367,11 +367,9 @@ def render_markdown(meta: dict, summary: list[dict]) -> str:
     ]
     out += [
         "",
-        "Threads is N: each run is pinned to N logical CPUs, Tokio gets N worker threads and Go gets `GOMAXPROCS=N`. "
-        "Tokio runs the test's tasks and Go its goroutines on those threads; Crossbeam has no tasks and starts one OS "
-        "thread per sender, receiver, worker or spawned task instead (the CPU test uses N), all sharing the N CPUs. "
-        "The task and thread columns give those counts. Throughput is for the whole test, all its tasks or threads "
-        "together, not per thread or per task; latency is per round trip and memory is per idle task.",
+        "Threads = N: pinned to N CPUs; Tokio has N worker threads, Go has `GOMAXPROCS=N`. Crossbeam runs the OS "
+        "threads in its column on those CPUs. Throughput is the whole test's total, not per thread or task. Latency "
+        "is per round trip, memory per idle task.",
     ]
     if meta.get("physical_cores"):
         p = meta["physical_cores"]

@@ -2,7 +2,7 @@
 
 Median of 10 runs after 3 warm-ups (profile `full`, started 2026-09-18T19:09:06+05:30). **Bold** marks a clear best: its 98% confidence interval for the median doesn't overlap the next best's. No bold means no clear winner. ⚠ means the runs varied by more than 5%; (n/10) means only n runs succeeded. Confidence intervals, min/max, CPU time and p99.9 latency are in `summary.csv`.
 
-Threads is N: each run is pinned to N logical CPUs, Tokio gets N worker threads and Go gets `GOMAXPROCS=N`. Tokio runs the test's tasks and Go its goroutines on those threads; Crossbeam has no tasks and starts one OS thread per sender, receiver, worker or spawned task instead (the CPU test uses N), all sharing the N CPUs. The task and thread columns give those counts. Throughput is for the whole test, all its tasks or threads together, not per thread or per task; latency is per round trip and memory is per idle task.
+Threads = N: pinned to N CPUs; Tokio has N worker threads, Go has `GOMAXPROCS=N`. Crossbeam runs the OS threads in its column on those CPUs. Throughput is the whole test's total, not per thread or task. Latency is per round trip, memory per idle task.
 
 Up to 6 threads, each thread has its own physical core; above 6, threads share cores (SMT).
 

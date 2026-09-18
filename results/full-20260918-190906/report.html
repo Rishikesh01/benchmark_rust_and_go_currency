@@ -166,7 +166,7 @@ footer ul { padding-left: 18px; max-width: 80ch; }
   <div id="warnings"></div>
   <div class="card">
     <h3>At the highest thread count measured</h3>
-    <p class="card-sub">Median per implementation. Throughput is for the whole test, all its tasks or threads together, not per thread or per task; latency is per round trip and memory is per idle task; bold marks a clear best (confidence intervals don't overlap). Threads is N: the CPUs a run is pinned to, which is also the number of Tokio worker threads and Go's GOMAXPROCS.</p>
+    <p class="card-sub">Median per implementation. Throughput is the whole test's total, not per thread or task. Bold marks a clear best (confidence intervals don't overlap). Threads = pinned CPUs = Tokio worker threads = GOMAXPROCS.</p>
     <div class="table-wrap" id="overview"></div>
   </div>
   <nav class="toc" id="toc" aria-label="Tests"></nav>
@@ -660,7 +660,7 @@ for (const sec of DATA.sections) {
   for (const [k, v] of rows) dl.append(el("dt", {}, k), el("dd", {}, v));
 
   const notes = [
-    "Every run is a fresh process pinned with taskset to exactly N logical CPUs, one per physical core before any SMT sibling. Tokio worker_threads and GOMAXPROCS are set to N, and Tokio tasks and goroutines run on those threads. Crossbeam starts one OS thread per sender, receiver, worker or task instead (N for the CPU test), all sharing the N CPUs.",
+    "Every run is a fresh process pinned with taskset to exactly N logical CPUs, one per physical core before any SMT sibling. Tokio worker_threads and GOMAXPROCS are N; Crossbeam uses one OS thread per sender, receiver, worker or task (N for the CPU test).",
     "Each result is checked: a checksum must match the expected value (or, for the CPU test, match the other implementations) or the run is rejected.",
     "Tokio's own mpsc channel has one receiver, so the many-receivers test uses the async-channel crate.",
     "Every implementation uses the same channel capacity in a test: 1024 for the channel tests, 1 for their capacity-1 versions and for ping-pong (Tokio channels cannot have zero capacity).",
