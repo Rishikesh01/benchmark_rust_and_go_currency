@@ -1,6 +1,6 @@
 {
   "profile": "full",
-  "started_at": "2026-09-17T10:35:59+05:30",
+  "started_at": "2026-09-18T19:09:06+05:30",
   "workloads": [
     "spsc",
     "spsc-cap1",
@@ -104,7 +104,7 @@
   },
   "warmup": 3,
   "reps": 10,
-  "seed": 1760887766,
+  "seed": 2760774673,
   "cpu_order": [
     0,
     2,
@@ -130,11 +130,11 @@
     "performance"
   ],
   "on_ac_power": true,
-  "load_avg_1m": 2.22,
-  "cpu_temp_c_at_start": 65.1,
+  "load_avg_1m": 2.37,
+  "cpu_temp_c_at_start": 62.9,
   "quiet_cpu_pct": 10.0,
-  "mem_total_kb": 23393172,
-  "mem_available_kb": 13252136,
+  "mem_total_kb": 23392964,
+  "mem_available_kb": 11862036,
   "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
   "go": "go version go1.27.0 linux/amd64",
   "crates": {
@@ -148,10 +148,10 @@
     "parking_lot": "0.12.5",
     "tokio": "1.53.1"
   },
-  "git_commit": "8e4c12bade17063997c5a3c2559592422213de4c",
+  "git_commit": "d7c084849ce3e5b26e72d24a9bdfd80ab9761d43",
   "git_dirty": false,
   "variant_help": {},
   "warnings": [
-    "1-minute load average was 2.22 at start; other programs compete for CPU."
+    "1-minute load average was 2.37 at start; other programs compete for CPU."
   ]
 }

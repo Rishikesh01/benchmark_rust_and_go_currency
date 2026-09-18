@@ -14,8 +14,8 @@ AMD Ryzen 5 5625U laptop (6 cores / 12 threads), `performance` governor, on AC p
 (`rustc 1.98.0 (88d9e12ae 2026-08-18)`, release build) and Go 1.27.0 (`go1.27.0 linux/amd64`). Medians of 10
 runs at 12 threads. **Bold** marks a clear winner: its confidence interval doesn't overlap the runner-up's.
 Every thread count, confidence intervals, CPU time and p99.9 latency:
-[`summary.md`](results/full-20260917-103559/summary.md),
-[`summary.csv`](results/full-20260917-103559/summary.csv).
+[`summary.md`](results/full-20260918-190906/summary.md),
+[`summary.csv`](results/full-20260918-190906/summary.csv).
 
 ### MPMC channels
 
@@ -24,8 +24,8 @@ Tokio), crossbeam-channel and Go `chan`.
 
 | Test | Tokio | Tuned Tokio | Crossbeam | Go | Unit |
 |---|---:|---:|---:|---:|---|
-| 4 senders → 4 receivers, capacity 1024 | 9.78M | **81.1M** | 26.5M | 18.7M | messages/s |
-| 4 senders → 4 receivers, capacity 1 | 2.08M | **19.2M** | 5.14M | 6.62M | messages/s |
+| 4 senders → 4 receivers, capacity 1024 | 9.32M | **78.5M** | 24.3M | 17.6M | messages/s |
+| 4 senders → 4 receivers, capacity 1 | 1.74M | **17.4M** | 4.62M | 5.89M | messages/s |
 
 ### Single-receiver channels
 
@@ -34,24 +34,24 @@ Tokio otherwise uses kanal, and Crossbeam and Go use their MPMC channels with a 
 
 | Test | Tokio | Tuned Tokio | Crossbeam | Go | Unit |
 |---|---:|---:|---:|---:|---|
-| 1 sender → 1 receiver, capacity 1024 | 13.1M | **135M** | 37.1M | 29.3M | messages/s |
-| 1 sender → 1 receiver, capacity 1 | 4.91M | **19.7M** | 7.10M | 10.5M | messages/s |
-| Ping-pong | 4.31M | **7.04M** | 3.86M | 3.91M | round trips/s |
-| Ping-pong latency p50 | 140 ns | **90 ns** | 280 ns | 250 ns | lower is better |
-| Ping-pong latency p99 | 2.18 µs | 2.17 µs | **341 ns** | 516 ns | lower is better |
-| Select over 2 channels, capacity 1024 | 20.0M | **36.9M** | 13.3M | 13.8M | messages/s |
-| Select over 2 channels, capacity 1 | 5.43M | 4.91M | 5.77M | **7.09M** | messages/s |
+| 1 sender → 1 receiver, capacity 1024 | 13.2M | **129M** | 33.9M | 28.0M | messages/s |
+| 1 sender → 1 receiver, capacity 1 | 4.63M | **17.3M** | 6.70M | 10.4M | messages/s |
+| Ping-pong | 3.85M | **6.25M** | 3.81M | 3.58M | round trips/s |
+| Ping-pong latency p50 | 151 ns | **100 ns** | 281 ns | 275 ns | lower is better |
+| Ping-pong latency p99 | 2.48 µs | 2.46 µs | **350 ns** | 581 ns | lower is better |
+| Select over 2 channels, capacity 1024 | 19.8M | **37.8M** | 13.3M | 13.8M | messages/s |
+| Select over 2 channels, capacity 1 | 5.00M | 4.58M | 5.88M | **6.74M** | messages/s |
 
 ### Tasks, CPU, locks and memory
 
 | Test | Tokio | Tuned Tokio | Crossbeam | Go | Unit |
 |---|---:|---:|---:|---:|---|
-| Spawn and join, 10K tasks | 3.87M | 5.87M | 28.2K | 5.32M | tasks/s |
-| Spawn and join, 1M tasks | 3.56M | 5.31M | — | **5.59M** | tasks/s |
-| CPU-heavy hashing | 99.0M | 99.1M | 99.7M | 90.7M | items/s |
-| Lock contention, 8 workers | 8.98M | **74.8M** | 29.4M | 25.8M | increments/s |
-| Memory per idle task, 10K tasks | 408 B | **261 B** | 9.92 KiB | 2.79 KiB | lower is better |
-| Memory per idle task, 1M tasks | 385 B | **258 B** | — | 2.69 KiB | lower is better |
+| Spawn and join, 10K tasks | 3.59M | 5.90M | 26.0K | 5.39M | tasks/s |
+| Spawn and join, 1M tasks | 3.39M | 4.91M | — | **5.32M** | tasks/s |
+| CPU-heavy hashing | 99.5M | 96.0M | 94.6M | 90.6M | items/s |
+| Lock contention, 8 workers | 8.49M | **75.1M** | 28.4M | 24.8M | increments/s |
+| Memory per idle task, 10K tasks | 410 B | **281 B** | 9.92 KiB | 2.78 KiB | lower is better |
+| Memory per idle task, 1M tasks | 384 B | **257 B** | — | 2.69 KiB | lower is better |
 
 — : Crossbeam uses one OS thread per task and is capped at 20,000 threads.
 
@@ -70,25 +70,25 @@ returns at once when the queue isn't empty, Tokio's for up to 128 messages per p
 CPU use are about the same with and without the drain loop. The likely gain is work per message: a `try_recv`
 instead of a new receive future each time.
 
-Tuned Tokio's 1 → 1 is also as fast on 1 thread as on 12 (137M vs 135M) and uses about 1.3 cores' worth of CPU
-time. That fits Tokio's LIFO slot: a woken task runs next on the worker that woke it and can't be stolen from
+Tuned Tokio's 1 → 1 is also about as fast on 1 thread as on 12 (135M vs 129M) and uses about 1.3 cores' worth of
+CPU time. That fits Tokio's LIFO slot: a woken task runs next on the worker that woke it and can't be stolen from
 there, so producer and consumer take turns on one thread, filling and then draining the buffer. Crossbeam's two
 threads each keep a core busy and pass every message between cores.
 
 **Capacity 1.** Nearly every message is a hand-off. Go puts the goroutine it wakes into the current processor's
 run-next slot, so sender and receiver keep swapping on one thread; that is why Go's throughput here is flat from
-1 to 12 threads (10.5M–11.1M). Crossbeam's sender and receiver are separate OS threads: with 2 or more CPUs every
-hand-off crosses CPUs, and on a single CPU every hop is a kernel context switch (110K–150K messages/s). Tuned
+1 to 12 threads (10.3M–11.2M). Crossbeam's sender and receiver are separate OS threads: with 2 or more CPUs every
+hand-off crosses CPUs, and on a single CPU every hop is a kernel context switch (107K–153K messages/s). Tuned
 Tokio still leads on 1 → 1 and 4 → 4 because kanal passes values directly to a waiting receiver, with no permit
 semaphore in between. The drain loop adds nothing here: in the variants build kanal alone gives the whole gain,
 and batching on top of it changes nothing.
 
 **Ping-pong.** Tokio (its LIFO slot) and Go (run-next) both run the just-woken task next on the same thread, yet
-Tokio's median round trip is half of Go's even on one thread (141 vs 280 ns). The likely reason is that resuming
-a Tokio task is a call into its state machine, while Go switches goroutine stacks. Tokio's p99 of about 2.2 µs
-appears only with 2 or more worker threads and is the same with kanal or `mpsc`, which points to cross-worker
-scheduling rather than the channel. Crossbeam's two threads spin before sleeping, which keeps its tail tight once
-each has its own CPU.
+Tokio's median round trip is about half of Go's even on one thread (141 vs 271 ns). The likely reason is that
+resuming a Tokio task is a call into its state machine, while Go switches goroutine stacks. Tokio's p99 of
+2.3–2.5 µs appears only with 2 or more worker threads and is the same with kanal or `mpsc`, which points to
+cross-worker scheduling rather than the channel. Crossbeam's two threads spin before sleeping, which keeps its
+tail tight once each has its own CPU.
 
 **Select.** `tokio::select!` polls both receivers inside one task. Go's `select` locks every channel involved on
 each iteration, and crossbeam's `select!` tries each channel and registers with all of them when none is ready.
@@ -96,16 +96,17 @@ Batching with `recv_many` nearly doubles tuned Tokio's result at capacity 1024. 
 batch, so it only adds work, and Go's same-thread hand-offs win.
 
 **Spawn.** Go reuses dead goroutines and their stacks, so spawning is cheap in a warm process. Default Tokio keeps
-every task allocated until its `JoinHandle` is awaited: with 1M tasks its peak memory is 254 MB at every thread
-count, against 18 MB for tuned Tokio and 24 MB for Go at 12 threads. Tuned Tokio drops the handles, so each task
-frees itself when it finishes, and it allocates through mimalloc. That only helps while the workers keep up: on
-one thread tasks pile up behind the spawning loop (Tokio's never yields, so all 1M are queued before any runs),
-and the peaks are 291 MB for tuned Tokio and 192 MB for Go. Crossbeam creates an OS thread per task (a `clone`
-system call plus a stack mapping), which is 140–210× slower.
+every task allocated until its `JoinHandle` is awaited: with 1M tasks its peak memory is 254–255 MiB at every
+thread count, against 19 MiB for tuned Tokio and 24 MiB for Go at 12 threads. Tuned Tokio drops the handles, so
+each task frees itself when it finishes, and it allocates through mimalloc. That only helps while the workers keep
+up: on one thread tasks pile up behind the spawning loop (Tokio's never yields, so all 1M are queued before any
+runs), and the peaks are 291 MiB for tuned Tokio and 194 MiB for Go. Crossbeam creates an OS thread per task (a
+`clone` system call plus a stack mapping), which is 140–230× slower.
 
 **CPU-heavy work.** Nothing blocks, so the scheduler barely matters and Tokio and Crossbeam tie. On one thread Go
-is about 4% slower; with no scheduling involved, that is code generation. The gap roughly doubles at 6 and 12
-threads. Turning off Go's asynchronous preemption didn't change it, and the cause wasn't isolated.
+is about 4% slower; with no scheduling involved, that is code generation. The gap grows to about 10% at 6 threads.
+Turning off Go's asynchronous preemption didn't change it, and the cause wasn't isolated. At 12 threads every
+implementation varied by 8–11% between runs, so there is no clear order.
 
 **Lock contention.** Tokio's async `Mutex` is FIFO-fair: every contended lock waits in a queue and is woken through
 the scheduler, which is expensive when the critical section is one increment. `std::sync::Mutex` spins briefly and
@@ -114,8 +115,8 @@ then waits on a futex, and Go's `sync.Mutex` spins and then parks the goroutine,
 0.5 ms, trading fairness for throughput.
 
 **Memory per idle task.** Each Tokio task is one 256-byte allocation. Tokio aligns the task header to 128 bytes, so
-Rust's system allocator goes through glibc's `posix_memalign`, which costs about 130 B extra per task here (385 B
-resident); mimalloc serves the same request with no overhead (258 B). A goroutine starts with at least a 2 KiB
+Rust's system allocator goes through glibc's `posix_memalign`, which costs about 130 B extra per task here (384 B
+resident); mimalloc serves the same request with no overhead (257 B). A goroutine starts with at least a 2 KiB
 stack plus its descriptor (2.69 KiB). An OS thread keeps its touched stack pages and thread bookkeeping resident,
 about 10 KiB, not counting kernel memory.
 
