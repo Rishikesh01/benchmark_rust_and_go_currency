@@ -262,6 +262,17 @@ def write_csv(path: Path, summary: list[dict]) -> None:
 
 # ---------------------------------------------------------------- markdown
 
+# Cells whose channel isn't the one the column's name suggests: Tokio has no multi-receiver channel, so both Tokio-channel
+# builds use async-channel for MPMC. Shown next to the number.
+CHANNEL_NOTES = {(impl, w): "async-channel" for impl in ("tokio", "tokio-tuned-tokio-channels") for w in ("mpmc", "mpmc-cap1")}
+
+
+def noted(cells: list[str], impls: list[str], workload: str) -> list[str]:
+    """Table cells with each CHANNEL_NOTES entry added after its number."""
+    return [f"{c} ({CHANNEL_NOTES[(i, workload)]})" if (i, workload) in CHANNEL_NOTES and c != "—" else c
+            for c, i in zip(cells, impls)]
+
+
 DISPLAY_NAMES = {"tokio": "Tokio", "tokio-tuned": "Tuned Tokio", "tokio-tuned-tokio-channels": "Tuned Tokio, Tokio channels",
                  "crossbeam": "Crossbeam", "go": "Go"}
 
@@ -287,8 +298,8 @@ ROW_LABELS = {
 # like with like; the last section (None) takes every other workload.
 TABLE_SECTIONS = [
     ("MPMC channels",
-     "Every implementation uses a bounded multi-producer, multi-consumer channel: async-channel (Tokio), "
-     "kanal (tuned Tokio), crossbeam-channel and Go `chan`.",
+     "Every implementation uses a bounded multi-producer, multi-consumer channel: async-channel (Tokio and tuned Tokio, "
+     "Tokio channels; Tokio has none), kanal (tuned Tokio), crossbeam-channel and Go `chan`.",
      {"mpmc", "mpmc-cap1"}),
     ("Single-receiver channels",
      "One receiver per channel. Tokio uses its MPSC channel, `tokio::sync::mpsc` (so does tuned Tokio for select); "
@@ -411,7 +422,7 @@ def render_markdown(meta: dict, summary: list[dict]) -> str:
         for spec in rows:
             _, label, unit, key, fmt, lower_better, by_threads = spec
             out.append(md_row([label] + count_cells(cols, spec, top)
-                              + table_cells(cols, by_threads[top], key, fmt, lower_better) + [unit]))
+                              + noted(table_cells(cols, by_threads[top], key, fmt, lower_better), cols, spec[0]) + [unit]))
 
     if len(threads) > 1:
         out += ["", "## All thread counts"]
@@ -424,7 +435,7 @@ def render_markdown(meta: dict, summary: list[dict]) -> str:
             for spec in section:
                 _, label, unit, key, fmt, lower_better, by_threads = spec
                 for n, (t, rows) in enumerate(sorted(by_threads.items())):
-                    cells = count_cells(cols, spec, t) + table_cells(cols, rows, key, fmt, lower_better)
+                    cells = count_cells(cols, spec, t) + noted(table_cells(cols, rows, key, fmt, lower_better), cols, spec[0])
                     out.append(md_row([label if n == 0 else "", str(t)] + cells + [unit if n == 0 else ""]))
 
     notes = {}

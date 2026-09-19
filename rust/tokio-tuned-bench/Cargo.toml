@@ -8,5 +8,6 @@ version.workspace = true
 common = { path = "../common" }
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
 kanal = "0.1.1"
+async-channel = "2"
 mimalloc = "0.1.52"
 parking_lot = "0.12.5"

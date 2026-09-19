@@ -232,6 +232,8 @@ def render_index(meta, workloads, impls, threads_list, graphs, results: Path | N
                     median, size = found
                     # Crossbeam's spawn graph is at a smaller size (it can't start 1M threads); say so in its cell.
                     text = report.fmt_si(median) + ("" if size == max(sizes) else f" at {report.fmt_count(size)}")
+                    if note := report.CHANNEL_NOTES.get((impl, workload)):
+                        text += f" ({note})"
                 cells.append(f"[{text}]({svg})")
             unit = [report.describe(workload, params)[2]] if summary else []
             lines.append(report.md_row([label] + cells + unit))
