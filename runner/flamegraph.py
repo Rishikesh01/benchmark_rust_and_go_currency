@@ -173,15 +173,14 @@ def render_index(meta, workloads, impls, threads_list, graphs) -> str:
         "Whole process, startup and untimed passes included. Frame width is CPU cycles; kernel frames end in `_[k]`. "
         "Rust is built with frame pointers for complete stacks.",
     ]
+    # One line of links per test, not a table: five implementation columns don't fit a GitHub Pages page.
     for threads in threads_list:
-        lines += ["", f"## {threads} threads", "",
-                  "| Test | " + " | ".join(report.display_name(i) for i in impls) + " |",
-                  "|---|" + "---|" * len(impls)]
+        lines += ["", f"## {threads} threads", ""]
         for workload in workloads:
             # Spawn's size differs between implementations (Crossbeam can't start 1M threads); each SVG names its own.
             label = "Spawn and join" if workload == "spawn" else report.ROW_LABELS[workload].format(**run.WORKLOAD_PARAMS[workload])
-            cells = [f"[svg]({graphs[(workload, threads, i)]})" if (workload, threads, i) in graphs else "—" for i in impls]
-            lines.append(f"| {label} | " + " | ".join(cells) + " |")
+            links = [f"[{report.display_name(i)}]({graphs[(workload, threads, i)]})" for i in impls if (workload, threads, i) in graphs]
+            lines.append(f"- {label}: " + " · ".join(links))
     return "\n".join(lines) + "\n"
 
 
