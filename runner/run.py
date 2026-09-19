@@ -33,7 +33,10 @@ BINARIES = {
     "crossbeam": ROOT / "rust/target/release/crossbeam-bench",
     "go": ROOT / "go/bin/gobench",
     "tokio-tuned": ROOT / "rust/target/release/tokio-tuned-bench",
+    "tokio-tuned-tokio-channels": ROOT / "rust/target/release/tokio-tuned-tokio-channels-bench",
 }
+# Implementations that run only some workloads; the others run every workload.
+IMPL_WORKLOADS = {"tokio-tuned-tokio-channels": {"spsc", "mpsc", "pingpong"}}
 DEFAULT_IMPLS = ["tokio", "crossbeam", "go"]
 
 # Screening builds for single Tokio tweaks, used as `--impls tokio+batch,tokio+mimalloc+kanal,...`.
@@ -273,6 +276,8 @@ def resolve_impl(impl: str, case: str) -> tuple[Path, list[str]] | None:
     """Binary and --variant list for an impl spec, or None if it doesn't apply to this case."""
     base, *variants = impl.split("+")
     if not variants:
+        if base in IMPL_WORKLOADS and program_workload(case) not in IMPL_WORKLOADS[base]:
+            return None
         return BINARIES[base], []
     for v in variants:
         workloads = TOKIO_VARIANTS[v][0]

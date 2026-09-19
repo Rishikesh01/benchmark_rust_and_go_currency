@@ -11,6 +11,9 @@
 //! - parking_lot::Mutex, never held across `.await` (mutex)
 //!
 //! `cpu` and `idle` are unchanged apart from the allocator.
+//!
+//! `src/bin/tokio-tuned-tokio-channels-bench.rs` runs the channel tests with these
+//! same changes but Tokio's own channels, to isolate what kanal contributes.
 
 use common::{chunk_bounds, cpu_range, fail, proc_rss_kb, Args, Report};
 use std::sync::atomic::{AtomicU64, Ordering};

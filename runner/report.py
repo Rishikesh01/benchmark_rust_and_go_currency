@@ -256,7 +256,8 @@ def write_csv(path: Path, summary: list[dict]) -> None:
 
 # ---------------------------------------------------------------- markdown
 
-DISPLAY_NAMES = {"tokio": "Tokio", "tokio-tuned": "Tuned Tokio", "crossbeam": "Crossbeam", "go": "Go"}
+DISPLAY_NAMES = {"tokio": "Tokio", "tokio-tuned": "Tuned Tokio", "tokio-tuned-tokio-channels": "Tuned Tokio, Tokio channels",
+                 "crossbeam": "Crossbeam", "go": "Go"}
 
 # Test names in the summary table. {size} is the compact run size; other fields are the case parameters.
 ROW_LABELS = {
@@ -285,7 +286,8 @@ TABLE_SECTIONS = [
      {"mpmc", "mpmc-cap1"}),
     ("Single-receiver channels",
      "One receiver per channel. Tokio uses its MPSC channel, `tokio::sync::mpsc` (so does tuned Tokio for select); "
-     "tuned Tokio otherwise uses kanal, and Crossbeam and Go use their MPMC channels with a single receiver.",
+     "tuned Tokio otherwise uses kanal, and Crossbeam and Go use their MPMC channels with a single receiver. "
+     "Tuned Tokio, Tokio channels is tuned Tokio with `tokio::sync::mpsc` instead of kanal.",
      {"spsc", "spsc-cap1", "mpsc", "mpsc-cap1", "pingpong", "select", "select-cap1"}),
     ("Tasks, CPU, locks and memory", "", None),
 ]
@@ -322,10 +324,10 @@ def concurrency_blurb(workload: str, params: dict) -> str:
 def count_columns(impls: list[str]) -> list[str]:
     """Headers of the task and OS-thread count columns that apply to these implementations."""
     bases = {impl.split("+")[0] for impl in impls}
-    task_owners = [name for base, name in (("tokio", "Tokio"), ("tokio-tuned", "Tokio"), ("go", "Go")) if base in bases]
+    task_owners = (["Tokio"] if any(b.startswith("tokio") for b in bases) else []) + (["Go"] if "go" in bases else [])
     cols = []
     if task_owners:
-        cols.append("/".join(dict.fromkeys(task_owners)) + " tasks")
+        cols.append("/".join(task_owners) + " tasks")
     if "crossbeam" in bases:
         cols.append("Crossbeam threads")
     return cols
@@ -340,6 +342,12 @@ def count_cells(impls: list[str], spec: tuple, threads: int) -> list[str]:
     cols = count_columns(impls)
     return ([tasks] if any(c.endswith("tasks") for c in cols) else []) + (
         [os_threads] if "Crossbeam threads" in cols else [])
+
+
+def section_impls(impls: list[str], section: list[tuple]) -> list[str]:
+    """Implementations with a result anywhere in a table section; the others would be a column of dashes."""
+    present = {r["impl"] for spec in section for rows in spec[-1].values() for r in rows}
+    return [i for i in impls if i in present]
 
 
 def sectioned(specs: list[tuple]) -> list[tuple[str, str, list[tuple]]]:
@@ -390,25 +398,27 @@ def render_markdown(meta: dict, summary: list[dict]) -> str:
         if not rows:
             continue
         out += ["", f"### {title}", ""] + ([note, ""] if note else [])
-        counts = count_columns(impls)
-        out += [md_row(["Test"] + counts + [display_name(i) for i in impls] + ["Unit"]),
-                md_row(["---"] + ["---:"] * (len(counts) + len(impls)) + ["---"])]
+        cols = section_impls(impls, section)
+        counts = count_columns(cols)
+        out += [md_row(["Test"] + counts + [display_name(i) for i in cols] + ["Unit"]),
+                md_row(["---"] + ["---:"] * (len(counts) + len(cols)) + ["---"])]
         for spec in rows:
             _, label, unit, key, fmt, lower_better, by_threads = spec
-            out.append(md_row([label] + count_cells(impls, spec, top)
-                              + table_cells(impls, by_threads[top], key, fmt, lower_better) + [unit]))
+            out.append(md_row([label] + count_cells(cols, spec, top)
+                              + table_cells(cols, by_threads[top], key, fmt, lower_better) + [unit]))
 
     if len(threads) > 1:
         out += ["", "## All thread counts"]
         for title, _, section in sectioned(specs):
-            counts = count_columns(impls)
+            cols = section_impls(impls, section)
+            counts = count_columns(cols)
             out += ["", f"### {title}", "",
-                    md_row(["Test", "Threads"] + counts + [display_name(i) for i in impls] + ["Unit"]),
-                    md_row(["---", "---:"] + ["---:"] * (len(counts) + len(impls)) + ["---"])]
+                    md_row(["Test", "Threads"] + counts + [display_name(i) for i in cols] + ["Unit"]),
+                    md_row(["---", "---:"] + ["---:"] * (len(counts) + len(cols)) + ["---"])]
             for spec in section:
                 _, label, unit, key, fmt, lower_better, by_threads = spec
                 for n, (t, rows) in enumerate(sorted(by_threads.items())):
-                    cells = count_cells(impls, spec, t) + table_cells(impls, rows, key, fmt, lower_better)
+                    cells = count_cells(cols, spec, t) + table_cells(cols, rows, key, fmt, lower_better)
                     out.append(md_row([label if n == 0 else "", str(t)] + cells + [unit if n == 0 else ""]))
 
     notes = {}

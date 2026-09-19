@@ -29,7 +29,7 @@ import report
 import run
 
 FREQ = 9999  # samples/s per CPU, so even the shortest tests get 1,500+ samples; odd, so it misses timer ticks
-DEFAULT_IMPLS = ["tokio", "tokio-tuned", "crossbeam", "go"]
+DEFAULT_IMPLS = ["tokio", "tokio-tuned-tokio-channels", "tokio-tuned", "crossbeam", "go"]
 SKIP = {"idle"}  # idle tasks only sleep; there's nothing to profile
 RUST_RELEASE = run.ROOT / "rust/target/release"
 FP_TARGET = run.ROOT / "rust/target/frame-pointers"

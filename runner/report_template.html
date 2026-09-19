@@ -197,7 +197,10 @@ function displayOrder(impls) {
     .map(([, impl]) => impl);
 }
 const IMPLS = displayOrder(DATA.impls);
-const DISPLAY_NAMES = { tokio: "Tokio", "tokio-tuned": "Tuned Tokio", crossbeam: "Crossbeam", go: "Go" };
+const DISPLAY_NAMES = {
+  tokio: "Tokio", "tokio-tuned": "Tuned Tokio", "tokio-tuned-tokio-channels": "Tuned Tokio, Tokio channels",
+  crossbeam: "Crossbeam", go: "Go",
+};
 const nameOf = impl => {
   const [base, ...variants] = impl.split("+");
   return (DISPLAY_NAMES[base] ?? base) + variants.map(v => ` + ${v}`).join("");
@@ -665,6 +668,7 @@ for (const sec of DATA.sections) {
     "Tokio's own mpsc channel has one receiver, so the many-receivers test uses the async-channel crate.",
     "Every implementation uses the same channel capacity in a test: 1024 for the channel tests, 1 for their capacity-1 versions and for ping-pong (Tokio channels cannot have zero capacity).",
     "tokio-tuned is a separate program (rust/tokio-tuned-bench): mimalloc, kanal channels, batched receives, spawning without JoinHandles and parking_lot::Mutex, each kept only where screening showed a gain.",
+    "tokio-tuned-tokio-channels (a second binary of rust/tokio-tuned-bench) is tuned Tokio with tokio::sync::mpsc instead of kanal, for the single-receiver channel tests and ping-pong.",
     "Crossbeam has no lightweight tasks: spawn and idle tests use one OS thread per task and are skipped above 20,000 threads.",
     "Idle memory is resident memory (VmRSS) added after tasks park; kernel thread structures are not counted, which flatters OS threads.",
     "Go numbers include its garbage collector; the CPU test also reflects each compiler's code generation, not only the scheduler.",
