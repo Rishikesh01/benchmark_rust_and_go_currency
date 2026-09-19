@@ -6,7 +6,10 @@
 //! itself, so they don't use one.
 //!
 //! Each thread's closure only calls a named `#[inline(never)]` function, so
-//! flame graphs show `produce`, `consume` and so on instead of the closure.
+//! flame graphs show `produce`, `consume` and so on instead of the closure. The
+//! functions borrow or own each channel end exactly as the closures they replaced
+//! did: a consumer owning its `Receiver` instead of borrowing it measured 7-10%
+//! slower on buffered channels.
 
 use common::{chunk_bounds, cpu_range, fail, proc_rss_kb, Args, Report, MAX_OS_THREADS};
 use crossbeam::channel::{bounded, never, select, Receiver, Sender};
@@ -68,6 +71,7 @@ fn spsc(a: &Args) -> Report {
     let line = &StartLine::new(2);
     thread::scope(|s| {
         let producer = s.spawn(move |_| produce(tx, line, 0..n));
+        let rx = &rx;
         let consumer = s.spawn(move |_| consume(rx, line));
         producer.join().unwrap();
         let sum = consumer.join().unwrap();
@@ -87,7 +91,7 @@ fn produce(tx: Sender<u64>, line: &StartLine, values: Range<u64>) {
 
 /// Sums everything received until every sender is gone.
 #[inline(never)]
-fn consume(rx: Receiver<u64>, line: &StartLine) -> u64 {
+fn consume(rx: &Receiver<u64>, line: &StartLine) -> u64 {
     line.go();
     let mut sum = 0u64;
     for v in rx.iter() {
@@ -103,6 +107,7 @@ fn many_to_one(a: &Args) -> Report {
     let (tx, rx) = bounded::<u64>(a.capacity);
     let line = &StartLine::new(a.producers + 1);
     thread::scope(|s| {
+        let rx = &rx;
         let consumer = s.spawn(move |_| consume(rx, line));
         let producers: Vec<_> = (0..a.producers as u64)
             .map(|p| {
@@ -129,7 +134,7 @@ fn mpmc(a: &Args) -> Report {
         let consumers: Vec<_> = (0..a.consumers)
             .map(|_| {
                 let rx = rx.clone();
-                s.spawn(move |_| consume(rx, line))
+                s.spawn(move |_| consume(&rx, line))
             })
             .collect();
         drop(rx);
@@ -157,6 +162,7 @@ fn pingpong(a: &Args) -> Report {
     let (to_a, a_rx) = bounded::<u64>(1);
     let line = &StartLine::new(2);
     thread::scope(|s| {
+        let (b_rx, to_a, a_rx) = (&b_rx, &to_a, &a_rx);
         let b = s.spawn(move |_| pong(b_rx, to_a, line));
         let a_side = s.spawn(move |_| ping(to_b, a_rx, line, n, every));
         let (token, mut samples) = a_side.join().unwrap();
@@ -168,7 +174,7 @@ fn pingpong(a: &Args) -> Report {
 
 /// Sends the token `n` times, waiting for each reply; times every `every`-th round trip.
 #[inline(never)]
-fn ping(to_b: Sender<u64>, a_rx: Receiver<u64>, line: &StartLine, n: u64, every: u64) -> (u64, Vec<u64>) {
+fn ping(to_b: Sender<u64>, a_rx: &Receiver<u64>, line: &StartLine, n: u64, every: u64) -> (u64, Vec<u64>) {
     let mut samples = Vec::with_capacity((n / every + 1) as usize);
     line.go();
     let mut token = 0u64;
@@ -185,7 +191,7 @@ fn ping(to_b: Sender<u64>, a_rx: Receiver<u64>, line: &StartLine, n: u64, every:
 
 /// Replies to every token with token + 1 until `ping` hangs up.
 #[inline(never)]
-fn pong(b_rx: Receiver<u64>, to_a: Sender<u64>, line: &StartLine) {
+fn pong(b_rx: &Receiver<u64>, to_a: &Sender<u64>, line: &StartLine) {
     line.go();
     for v in b_rx.iter() {
         if to_a.send(v + 1).is_err() {
