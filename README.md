@@ -26,6 +26,7 @@ runs.
 
 Every thread count, confidence intervals and CPU time: [`summary.md`](results/full-20260918-210446/summary.md),
 [`summary.csv`](results/full-20260918-210446/summary.csv).
+Flame graphs of every test at 12 threads: [`index.md`](results/flame-20260919-123439/index.md).
 
 ### MPMC channels
 
