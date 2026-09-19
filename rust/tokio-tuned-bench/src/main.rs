@@ -17,6 +17,7 @@
 //! same changes but Tokio's own channels, to isolate what kanal contributes.
 
 use common::{chunk_bounds, cpu_range, fail, proc_rss_kb, Args, Report};
+use std::future::Future;
 use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -339,10 +340,21 @@ async fn idle(a: Args) -> Report {
 }
 
 /// An idle task: counts itself as parked, waits for the gate to close, then counts itself as finished.
-async fn park(gate: Arc<Semaphore>, parked: Arc<AtomicU64>, finished: Arc<AtomicU64>, all_done: Arc<Notify>, n: u64) {
-    parked.fetch_add(1, Ordering::Relaxed);
-    let _ = gate.acquire().await;
-    if finished.fetch_add(1, Ordering::Relaxed) + 1 == n {
-        all_done.notify_one();
+///
+/// A plain fn returning an async block, not an `async fn`: an `async fn`'s future keeps its arguments twice
+/// (once as passed, once as the locals held across `.await`), which made every idle task 128 B bigger.
+fn park(
+    gate: Arc<Semaphore>,
+    parked: Arc<AtomicU64>,
+    finished: Arc<AtomicU64>,
+    all_done: Arc<Notify>,
+    n: u64,
+) -> impl Future<Output = ()> {
+    async move {
+        parked.fetch_add(1, Ordering::Relaxed);
+        let _ = gate.acquire().await;
+        if finished.fetch_add(1, Ordering::Relaxed) + 1 == n {
+            all_done.notify_one();
+        }
     }
 }
