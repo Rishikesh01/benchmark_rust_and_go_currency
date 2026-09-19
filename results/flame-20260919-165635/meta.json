@@ -1,0 +1,166 @@
+{
+  "profile": "full",
+  "started_at": "2026-09-19T16:56:35+05:30",
+  "workloads": [
+    "spsc",
+    "spsc-cap1",
+    "mpsc",
+    "mpsc-cap1",
+    "mpmc",
+    "mpmc-cap1",
+    "pingpong",
+    "spawn",
+    "cpu",
+    "select",
+    "select-cap1",
+    "mutex"
+  ],
+  "impls": [
+    "tokio",
+    "tokio-tuned-tokio-channels",
+    "tokio-tuned",
+    "crossbeam",
+    "go"
+  ],
+  "threads": [
+    12
+  ],
+  "sizes": {
+    "spsc": [
+      10000000
+    ],
+    "spsc-cap1": [
+      1000000
+    ],
+    "mpsc": [
+      10000000
+    ],
+    "mpsc-cap1": [
+      1000000
+    ],
+    "mpmc": [
+      10000000
+    ],
+    "mpmc-cap1": [
+      1000000
+    ],
+    "pingpong": [
+      1000000
+    ],
+    "spawn": [
+      10000,
+      1000000
+    ],
+    "cpu": [
+      16000000
+    ],
+    "select": [
+      10000000
+    ],
+    "select-cap1": [
+      1000000
+    ],
+    "mutex": [
+      10000000
+    ]
+  },
+  "params": {
+    "spsc": {
+      "capacity": 1024
+    },
+    "spsc-cap1": {
+      "capacity": 1
+    },
+    "mpsc": {
+      "capacity": 1024,
+      "producers": 4
+    },
+    "mpsc-cap1": {
+      "capacity": 1,
+      "producers": 4
+    },
+    "mpmc": {
+      "capacity": 1024,
+      "producers": 4,
+      "consumers": 4
+    },
+    "mpmc-cap1": {
+      "capacity": 1,
+      "producers": 4,
+      "consumers": 4
+    },
+    "pingpong": {
+      "sample-every": 17
+    },
+    "spawn": {},
+    "cpu": {
+      "tasks": 256,
+      "rounds": 32
+    },
+    "select": {
+      "capacity": 1024
+    },
+    "select-cap1": {
+      "capacity": 1
+    },
+    "mutex": {
+      "workers": 8
+    }
+  },
+  "warmup": 0,
+  "reps": 1,
+  "seed": null,
+  "cpu_order": [
+    0,
+    2,
+    4,
+    6,
+    8,
+    10,
+    1,
+    3,
+    5,
+    7,
+    9,
+    11
+  ],
+  "physical_cores": 6,
+  "cpu_model": "AMD Ryzen 5 5625U with Radeon Graphics",
+  "logical_cpus": 12,
+  "kernel": "6.8.0-11-generic",
+  "governors": [
+    "performance"
+  ],
+  "energy_performance_preference": [
+    "performance"
+  ],
+  "on_ac_power": true,
+  "load_avg_1m": 3.07,
+  "cpu_temp_c_at_start": 82.1,
+  "quiet_cpu_pct": 10.0,
+  "mem_total_kb": 23392964,
+  "mem_available_kb": 17148144,
+  "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+  "go": "go version go1.27.0 linux/amd64",
+  "crates": {
+    "async-channel": "2.5.0",
+    "crossbeam": "0.8.5",
+    "crossbeam-channel": "0.5.17",
+    "crossbeam-deque": "0.8.8",
+    "flume": "0.12.0",
+    "kanal": "0.1.1",
+    "mimalloc": "0.1.52",
+    "parking_lot": "0.12.5",
+    "tokio": "1.53.1"
+  },
+  "git_commit": "127cc337e459622e62714a09ee7093f1b3650fc2",
+  "git_dirty": false,
+  "variant_help": {},
+  "warnings": [
+    "1-minute load average was 3.07 at start; other programs compete for CPU."
+  ],
+  "perf": "perf version 6.8.12",
+  "sample_hz": 9999,
+  "kernel_frames": true,
+  "rustflags": "-C force-frame-pointers=yes"
+}
