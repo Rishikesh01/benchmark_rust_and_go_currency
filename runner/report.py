@@ -36,11 +36,17 @@ WORKLOAD_INFO = {
 }
 
 
-def build(out_dir: Path) -> None:
+def load(out_dir: Path) -> tuple[dict, list[dict]]:
+    """A results directory's meta.json and the summary of its raw.jsonl."""
     out_dir = Path(out_dir)
     meta = json.loads((out_dir / "meta.json").read_text())
     rows = [json.loads(l) for l in (out_dir / "raw.jsonl").read_text().splitlines() if l.strip()]
-    summary = summarise(rows, meta["impls"], meta["reps"])
+    return meta, summarise(rows, meta["impls"], meta["reps"])
+
+
+def build(out_dir: Path) -> None:
+    out_dir = Path(out_dir)
+    meta, summary = load(out_dir)
     write_csv(out_dir / "summary.csv", summary)
     (out_dir / "summary.md").write_text(render_markdown(meta, summary))
     (out_dir / "report.html").write_text(render_html(meta, summary))

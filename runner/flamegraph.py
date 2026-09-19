@@ -8,7 +8,8 @@ process is profiled, startup and untimed passes included. Kernel frames end in `
 Needs perf (`sudo apt install linux-tools-generic`), inferno and rustfilt (`cargo install inferno rustfilt`),
 and for kernel frames: sudo sysctl kernel.perf_event_paranoid=1 kernel.kptr_restrict=0
 
-Writes results/flame-<timestamp>/: one SVG per test, index.md linking them, meta.json.
+Writes results/flame-<timestamp>/: one SVG per test, index.md linking them, meta.json. With --results, index.md
+shows that benchmark run's medians, each linked to its flame graph.
 """
 
 from __future__ import annotations
@@ -80,7 +81,8 @@ def main() -> None:
                 if (out / svg).exists():
                     graphs[(workload, threads, impl)] = svg
 
-    (out / "index.md").write_text(render_index(meta, workloads, impls, threads_list, graphs))
+    results = Path(args.results) if args.results else None
+    (out / "index.md").write_text(render_index(meta, workloads, impls, threads_list, graphs, results))
     print(f"\nflame graphs: {out / 'index.md'}")
 
 
@@ -90,6 +92,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--impls", help=f"comma list (default {','.join(DEFAULT_IMPLS)})")
     p.add_argument("--threads", default="12", help="comma list of thread counts (default 12)")
     p.add_argument("--out", help="output directory (default results/flame-<timestamp>)")
+    p.add_argument("--results", help="benchmark run (results/<run>) whose medians label the links in index.md")
     p.add_argument("--no-build", action="store_true", help="skip cargo/go builds")
     return p.parse_args()
 
@@ -164,7 +167,15 @@ def render(perf, data: Path, svg: Path, title: str, subtitle: str) -> None:
         raise RuntimeError(f"perf script, rustfilt or inferno-collapse-perf failed for {data}")
 
 
-def render_index(meta, workloads, impls, threads_list, graphs) -> str:
+def median_at_largest_size(summary: list[dict], impl: str, workload: str, threads: int) -> tuple[float, int] | None:
+    """(median, size) at the largest size the implementation ran, the size profile_one profiles."""
+    rows = [s for s in summary if (s["impl"], s["workload"], s["threads"]) == (impl, workload, threads)
+            and s["status"] in report.SHOWN_STATUSES and s.get("ops_median") is not None]
+    best = max(rows, key=lambda s: s["size"], default=None)
+    return (best["ops_median"], best["size"]) if best else None
+
+
+def render_index(meta, workloads, impls, threads_list, graphs, results: Path | None = None) -> str:
     commit = (meta["git_commit"] or "unknown")[:7] + (" (uncommitted changes)" if meta["git_dirty"] else "")
     lines = [
         "# Flame graphs",
@@ -173,14 +184,34 @@ def render_index(meta, workloads, impls, threads_list, graphs) -> str:
         "Whole process, startup and untimed passes included. Frame width is CPU cycles; kernel frames end in `_[k]`. "
         "Rust is built with frame pointers for complete stacks.",
     ]
-    # One line of links per test, not a table: five implementation columns don't fit a GitHub Pages page.
+    summary = None
+    if results:
+        run_meta, summary = report.load(results)
+        run_commit = (run_meta["git_commit"] or "unknown")[:7] + (" (uncommitted changes)" if run_meta["git_dirty"] else "")
+        lines += ["", f"Numbers are medians from the benchmark run [`{results.name}`](../{results.name}/summary.md) "
+                      f"(commit {run_commit}); each links to its flame graph."]
     for threads in threads_list:
-        lines += ["", f"## {threads} threads", ""]
+        lines += ["", f"## {threads} threads", "",
+                  "| Test | " + " | ".join(report.display_name(i) for i in impls) + (" | Unit |" if summary else " |"),
+                  "|---|" + "---:|" * len(impls) + ("---|" if summary else "")]
         for workload in workloads:
-            # Spawn's size differs between implementations (Crossbeam can't start 1M threads); each SVG names its own.
-            label = "Spawn and join" if workload == "spawn" else report.ROW_LABELS[workload].format(**run.WORKLOAD_PARAMS[workload])
-            links = [f"[{report.display_name(i)}]({graphs[(workload, threads, i)]})" for i in impls if (workload, threads, i) in graphs]
-            lines.append(f"- {label}: " + " · ".join(links))
+            params = run.WORKLOAD_PARAMS[workload]
+            sizes = run.PROFILES["full"]["sizes"][workload]
+            label = report.ROW_LABELS[workload].format(size=report.fmt_count(max(sizes)), **params)
+            cells = []
+            for impl in impls:
+                svg = graphs.get((workload, threads, impl))
+                if not svg:
+                    cells.append("—")
+                    continue
+                text = "svg"
+                if summary and (found := median_at_largest_size(summary, impl, workload, threads)):
+                    median, size = found
+                    # Crossbeam's spawn graph is at a smaller size (it can't start 1M threads); say so in its cell.
+                    text = report.fmt_si(median) + ("" if size == max(sizes) else f" at {report.fmt_count(size)}")
+                cells.append(f"[{text}]({svg})")
+            unit = [report.describe(workload, params)[2]] if summary else []
+            lines.append(report.md_row([label] + cells + unit))
     return "\n".join(lines) + "\n"
 
 
