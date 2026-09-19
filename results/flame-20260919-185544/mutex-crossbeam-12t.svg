@@ -1,0 +1,491 @@
+<?xml version="1.0" standalone="no"?><!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd"><svg version="1.1" width="1200" height="558" onload="init(evt)" viewBox="0 0 1200 558" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:fg="http://github.com/jonhoo/inferno"><!--Flame graph stack visualization. See https://github.com/brendangregg/FlameGraph for latest version, and http://www.brendangregg.com/flamegraphs.html for examples.--><!--NOTES: --><defs><linearGradient id="background" y1="0" y2="1" x1="0" x2="0"><stop stop-color="#eeeeee" offset="5%"/><stop stop-color="#eeeeb0" offset="95%"/></linearGradient></defs><style type="text/css">
+text { font-family:monospace; font-size:12px }
+#title { text-anchor:middle; font-size:17px; }
+#matched { text-anchor:end; }
+#search { text-anchor:end; opacity:0.1; cursor:pointer; }
+#search:hover, #search.show { opacity:1; }
+#subtitle { text-anchor:middle; font-color:rgb(160,160,160); }
+#unzoom { cursor:pointer; }
+#frames > *:hover { stroke:black; stroke-width:0.5; cursor:pointer; }
+.hide { display:none; }
+.parent { opacity:0.5; }
+</style><script type="text/ecmascript"><![CDATA[
+        var nametype = 'Function:';
+        var fontsize = 12;
+        var fontwidth = 0.59;
+        var xpad = 10;
+        var inverted = false;
+        var searchcolor = 'rgb(230,0,230)';
+        var fluiddrawing = true;
+        var truncate_text_right = false;
+    ]]><![CDATA["use strict";
+var details, searchbtn, unzoombtn, matchedtxt, svg, searching, frames, known_font_width;
+function init(evt) {
+    details = document.getElementById("details").firstChild;
+    searchbtn = document.getElementById("search");
+    unzoombtn = document.getElementById("unzoom");
+    matchedtxt = document.getElementById("matched");
+    svg = document.getElementsByTagName("svg")[0];
+    frames = document.getElementById("frames");
+    known_font_width = get_monospace_width(frames);
+    total_samples = parseInt(frames.attributes.total_samples.value);
+    searching = 0;
+
+    // Use GET parameters to restore a flamegraph's state.
+    var restore_state = function() {
+        var params = get_params();
+        if (params.x && params.y)
+            zoom(find_group(document.querySelector('[*|x="' + params.x + '"][y="' + params.y + '"]')));
+        if (params.s)
+            search(params.s);
+    };
+
+    if (fluiddrawing) {
+        // Make width dynamic so the SVG fits its parent's width.
+        svg.removeAttribute("width");
+        // Edge requires us to have a viewBox that gets updated with size changes.
+        var isEdge = /Edge\/\d./i.test(navigator.userAgent);
+        if (!isEdge) {
+            svg.removeAttribute("viewBox");
+        }
+        var update_for_width_change = function() {
+            if (isEdge) {
+                svg.attributes.viewBox.value = "0 0 " + svg.width.baseVal.value + " " + svg.height.baseVal.value;
+            }
+
+            // Keep consistent padding on left and right of frames container.
+            frames.attributes.width.value = svg.width.baseVal.value - xpad * 2;
+
+            // Text truncation needs to be adjusted for the current width.
+            update_text_for_elements(frames.children);
+
+            // Keep search elements at a fixed distance from right edge.
+            var svgWidth = svg.width.baseVal.value;
+            searchbtn.attributes.x.value = svgWidth - xpad;
+            matchedtxt.attributes.x.value = svgWidth - xpad;
+        };
+        window.addEventListener('resize', function() {
+            update_for_width_change();
+        });
+        // This needs to be done asynchronously for Safari to work.
+        setTimeout(function() {
+            unzoom();
+            update_for_width_change();
+            restore_state();
+        }, 0);
+    } else {
+        restore_state();
+    }
+}
+// event listeners
+window.addEventListener("click", function(e) {
+    var target = find_group(e.target);
+    if (target) {
+        if (target.nodeName == "a") {
+            if (e.ctrlKey === false) return;
+            e.preventDefault();
+        }
+        if (target.classList.contains("parent")) unzoom();
+        zoom(target);
+
+        // set parameters for zoom state
+        var el = target.querySelector("rect");
+        if (el && el.attributes && el.attributes.y && el.attributes["fg:x"]) {
+            var params = get_params()
+            params.x = el.attributes["fg:x"].value;
+            params.y = el.attributes.y.value;
+            history.replaceState(null, null, parse_params(params));
+        }
+    }
+    else if (e.target.id == "unzoom") {
+        unzoom();
+
+        // remove zoom state
+        var params = get_params();
+        if (params.x) delete params.x;
+        if (params.y) delete params.y;
+        history.replaceState(null, null, parse_params(params));
+    }
+    else if (e.target.id == "search") search_prompt();
+}, false)
+// mouse-over for info
+// show
+window.addEventListener("mouseover", function(e) {
+    var target = find_group(e.target);
+    if (target) details.nodeValue = nametype + " " + g_to_text(target);
+}, false)
+// clear
+window.addEventListener("mouseout", function(e) {
+    var target = find_group(e.target);
+    if (target) details.nodeValue = ' ';
+}, false)
+// ctrl-F for search
+window.addEventListener("keydown",function (e) {
+    if (e.keyCode === 114 || (e.ctrlKey && e.keyCode === 70)) {
+        e.preventDefault();
+        search_prompt();
+    }
+}, false)
+// functions
+function get_params() {
+    var params = {};
+    var paramsarr = window.location.search.substr(1).split('&');
+    for (var i = 0; i < paramsarr.length; ++i) {
+        var tmp = paramsarr[i].split("=");
+        if (!tmp[0] || !tmp[1]) continue;
+        params[tmp[0]]  = decodeURIComponent(tmp[1]);
+    }
+    return params;
+}
+function parse_params(params) {
+    var uri = "?";
+    for (var key in params) {
+        uri += key + '=' + encodeURIComponent(params[key]) + '&';
+    }
+    if (uri.slice(-1) == "&")
+        uri = uri.substring(0, uri.length - 1);
+    if (uri == '?')
+        uri = window.location.href.split('?')[0];
+    return uri;
+}
+function find_child(node, selector) {
+    var children = node.querySelectorAll(selector);
+    if (children.length) return children[0];
+    return;
+}
+function find_group(node) {
+    var parent = node.parentElement;
+    if (!parent) return;
+    if (parent.id == "frames") return node;
+    return find_group(parent);
+}
+function orig_save(e, attr, val) {
+    if (e.attributes["fg:orig_" + attr] != undefined) return;
+    if (e.attributes[attr] == undefined) return;
+    if (val == undefined) val = e.attributes[attr].value;
+    e.setAttribute("fg:orig_" + attr, val);
+}
+function orig_load(e, attr) {
+    if (e.attributes["fg:orig_"+attr] == undefined) return;
+    e.attributes[attr].value = e.attributes["fg:orig_" + attr].value;
+    e.removeAttribute("fg:orig_" + attr);
+}
+function g_to_text(e) {
+    var text = find_child(e, "title").firstChild.nodeValue;
+    return (text)
+}
+function g_to_func(e) {
+    var func = g_to_text(e);
+    // if there's any manipulation we want to do to the function
+    // name before it's searched, do it here before returning.
+    return (func);
+}
+function get_monospace_width(frames) {
+    // Given the id="frames" element, return the width of text characters if
+    // this is a monospace font, otherwise return 0.
+    text = find_child(frames.children[0], "text");
+    originalContent = text.textContent;
+    text.textContent = "!";
+    bangWidth = text.getComputedTextLength();
+    text.textContent = "W";
+    wWidth = text.getComputedTextLength();
+    text.textContent = originalContent;
+    if (bangWidth === wWidth) {
+        return bangWidth;
+    } else {
+        return 0;
+    }
+}
+function update_text_for_elements(elements) {
+    // In order to render quickly in the browser, you want to do one pass of
+    // reading attributes, and one pass of mutating attributes. See
+    // https://web.dev/avoid-large-complex-layouts-and-layout-thrashing/ for details.
+
+    // Fall back to inefficient calculation, if we're variable-width font.
+    // TODO This should be optimized somehow too.
+    if (known_font_width === 0) {
+        for (var i = 0; i < elements.length; i++) {
+            update_text(elements[i]);
+        }
+        return;
+    }
+
+    var textElemNewAttributes = [];
+    for (var i = 0; i < elements.length; i++) {
+        var e = elements[i];
+        var r = find_child(e, "rect");
+        var t = find_child(e, "text");
+        var w = parseFloat(r.attributes.width.value) * frames.attributes.width.value / 100 - 3;
+        var txt = find_child(e, "title").textContent.replace(/\([^(]*\)$/,"");
+        var newX = format_percent((parseFloat(r.attributes.x.value) + (100 * 3 / frames.attributes.width.value)));
+
+        // Smaller than this size won't fit anything
+        if (w < 2 * known_font_width) {
+            textElemNewAttributes.push([newX, ""]);
+            continue;
+        }
+
+        // Fit in full text width
+        if (txt.length * known_font_width < w) {
+            textElemNewAttributes.push([newX, txt]);
+            continue;
+        }
+
+        var substringLength = Math.floor(w / known_font_width) - 2;
+        if (truncate_text_right) {
+            // Truncate the right side of the text.
+            textElemNewAttributes.push([newX, txt.substring(0, substringLength) + ".."]);
+            continue;
+        } else {
+            // Truncate the left side of the text.
+            textElemNewAttributes.push([newX, ".." + txt.substring(txt.length - substringLength, txt.length)]);
+            continue;
+        }
+    }
+
+    console.assert(textElemNewAttributes.length === elements.length, "Resize failed, please file a bug at https://github.com/jonhoo/inferno/");
+
+    // Now that we know new textContent, set it all in one go so we don't refresh a bazillion times.
+    for (var i = 0; i < elements.length; i++) {
+        var e = elements[i];
+        var values = textElemNewAttributes[i];
+        var t = find_child(e, "text");
+        t.attributes.x.value = values[0];
+        t.textContent = values[1];
+    }
+}
+
+function update_text(e) {
+    var r = find_child(e, "rect");
+    var t = find_child(e, "text");
+    var w = parseFloat(r.attributes.width.value) * frames.attributes.width.value / 100 - 3;
+    var txt = find_child(e, "title").textContent.replace(/\([^(]*\)$/,"");
+    t.attributes.x.value = format_percent((parseFloat(r.attributes.x.value) + (100 * 3 / frames.attributes.width.value)));
+
+    // Smaller than this size won't fit anything
+    if (w < 2 * fontsize * fontwidth) {
+        t.textContent = "";
+        return;
+    }
+    t.textContent = txt;
+    // Fit in full text width
+    if (t.getComputedTextLength() < w)
+        return;
+    if (truncate_text_right) {
+        // Truncate the right side of the text.
+        for (var x = txt.length - 2; x > 0; x--) {
+            if (t.getSubStringLength(0, x + 2) <= w) {
+                t.textContent = txt.substring(0, x) + "..";
+                return;
+            }
+        }
+    } else {
+        // Truncate the left side of the text.
+        for (var x = 2; x < txt.length; x++) {
+            if (t.getSubStringLength(x - 2, txt.length) <= w) {
+                t.textContent = ".." + txt.substring(x, txt.length);
+                return;
+            }
+        }
+    }
+    t.textContent = "";
+}
+// zoom
+function zoom_reset(e) {
+    if (e.tagName == "rect") {
+        e.attributes.x.value = format_percent(100 * parseInt(e.attributes["fg:x"].value) / total_samples);
+        e.attributes.width.value = format_percent(100 * parseInt(e.attributes["fg:w"].value) / total_samples);
+    }
+    if (e.childNodes == undefined) return;
+    for(var i = 0, c = e.childNodes; i < c.length; i++) {
+        zoom_reset(c[i]);
+    }
+}
+function zoom_child(e, x, zoomed_width_samples) {
+    if (e.tagName == "text") {
+        var parent_x = parseFloat(find_child(e.parentNode, "rect[x]").attributes.x.value);
+        e.attributes.x.value = format_percent(parent_x + (100 * 3 / frames.attributes.width.value));
+    } else if (e.tagName == "rect") {
+        e.attributes.x.value = format_percent(100 * (parseInt(e.attributes["fg:x"].value) - x) / zoomed_width_samples);
+        e.attributes.width.value = format_percent(100 * parseInt(e.attributes["fg:w"].value) / zoomed_width_samples);
+    }
+    if (e.childNodes == undefined) return;
+    for(var i = 0, c = e.childNodes; i < c.length; i++) {
+        zoom_child(c[i], x, zoomed_width_samples);
+    }
+}
+function zoom_parent(e) {
+    if (e.attributes) {
+        if (e.attributes.x != undefined) {
+            e.attributes.x.value = "0.0%";
+        }
+        if (e.attributes.width != undefined) {
+            e.attributes.width.value = "100.0%";
+        }
+    }
+    if (e.childNodes == undefined) return;
+    for(var i = 0, c = e.childNodes; i < c.length; i++) {
+        zoom_parent(c[i]);
+    }
+}
+function zoom(node) {
+    var attr = find_child(node, "rect").attributes;
+    var width = parseInt(attr["fg:w"].value);
+    var xmin = parseInt(attr["fg:x"].value);
+    var xmax = xmin + width;
+    var ymin = parseFloat(attr.y.value);
+    unzoombtn.classList.remove("hide");
+    var el = frames.children;
+    var to_update_text = [];
+    for (var i = 0; i < el.length; i++) {
+        var e = el[i];
+        var a = find_child(e, "rect").attributes;
+        var ex = parseInt(a["fg:x"].value);
+        var ew = parseInt(a["fg:w"].value);
+        // Is it an ancestor
+        if (!inverted) {
+            var upstack = parseFloat(a.y.value) > ymin;
+        } else {
+            var upstack = parseFloat(a.y.value) < ymin;
+        }
+        if (upstack) {
+            // Direct ancestor
+            if (ex <= xmin && (ex+ew) >= xmax) {
+                e.classList.add("parent");
+                zoom_parent(e);
+                to_update_text.push(e);
+            }
+            // not in current path
+            else
+                e.classList.add("hide");
+        }
+        // Children maybe
+        else {
+            // no common path
+            if (ex < xmin || ex >= xmax) {
+                e.classList.add("hide");
+            }
+            else {
+                zoom_child(e, xmin, width);
+                to_update_text.push(e);
+            }
+        }
+    }
+    update_text_for_elements(to_update_text);
+}
+function unzoom() {
+    unzoombtn.classList.add("hide");
+    var el = frames.children;
+    for(var i = 0; i < el.length; i++) {
+        el[i].classList.remove("parent");
+        el[i].classList.remove("hide");
+        zoom_reset(el[i]);
+    }
+    update_text_for_elements(el);
+}
+// search
+function reset_search() {
+    var el = document.querySelectorAll("#frames rect");
+    for (var i = 0; i < el.length; i++) {
+        orig_load(el[i], "fill")
+    }
+    var params = get_params();
+    delete params.s;
+    history.replaceState(null, null, parse_params(params));
+}
+function search_prompt() {
+    if (!searching) {
+        var term = prompt("Enter a search term (regexp " +
+            "allowed, eg: ^ext4_)", "");
+        if (term != null) {
+            search(term)
+        }
+    } else {
+        reset_search();
+        searching = 0;
+        searchbtn.classList.remove("show");
+        searchbtn.firstChild.nodeValue = "Search"
+        matchedtxt.classList.add("hide");
+        matchedtxt.firstChild.nodeValue = ""
+    }
+}
+function search(term) {
+    var re = new RegExp(term);
+    var el = frames.children;
+    var matches = new Object();
+    var maxwidth = 0;
+    for (var i = 0; i < el.length; i++) {
+        var e = el[i];
+        // Skip over frames which are either not visible, or below the zoomed-to frame
+        if (e.classList.contains("hide") || e.classList.contains("parent")) {
+            continue;
+        }
+        var func = g_to_func(e);
+        var rect = find_child(e, "rect");
+        if (func == null || rect == null)
+            continue;
+        // Save max width. Only works as we have a root frame
+        var w = parseInt(rect.attributes["fg:w"].value);
+        if (w > maxwidth)
+            maxwidth = w;
+        if (func.match(re)) {
+            // highlight
+            var x = parseInt(rect.attributes["fg:x"].value);
+            orig_save(rect, "fill");
+            rect.attributes.fill.value = searchcolor;
+            // remember matches
+            if (matches[x] == undefined) {
+                matches[x] = w;
+            } else {
+                if (w > matches[x]) {
+                    // overwrite with parent
+                    matches[x] = w;
+                }
+            }
+            searching = 1;
+        }
+    }
+    if (!searching)
+        return;
+    var params = get_params();
+    params.s = term;
+    history.replaceState(null, null, parse_params(params));
+
+    searchbtn.classList.add("show");
+    searchbtn.firstChild.nodeValue = "Reset Search";
+    // calculate percent matched, excluding vertical overlap
+    var count = 0;
+    var lastx = -1;
+    var lastw = 0;
+    var keys = Array();
+    for (k in matches) {
+        if (matches.hasOwnProperty(k))
+            keys.push(k);
+    }
+    // sort the matched frames by their x location
+    // ascending, then width descending
+    keys.sort(function(a, b){
+        return a - b;
+    });
+    // Step through frames saving only the biggest bottom-up frames
+    // thanks to the sort order. This relies on the tree property
+    // where children are always smaller than their parents.
+    for (var k in keys) {
+        var x = parseInt(keys[k]);
+        var w = matches[keys[k]];
+        if (x >= lastx + lastw) {
+            count += w;
+            lastx = x;
+            lastw = w;
+        }
+    }
+    // display matched percent
+    matchedtxt.classList.remove("hide");
+    var pct = 100 * count / maxwidth;
+    if (pct != 100) pct = pct.toFixed(1);
+    matchedtxt.firstChild.nodeValue = "Matched: " + pct + "%";
+}
+function format_percent(n) {
+    return n.toFixed(4) + "%";
+}
+]]></script><rect x="0" y="0" width="100%" height="558" fill="url(#background)"/><text id="title" fill="rgb(0,0,0)" x="50.0000%" y="24.00">Crossbeam: Lock contention, 8 workers</text><text id="subtitle" x="50.0000%" y="48.00">12 threads, size 10M, 20,308 samples ≈ 2.03 CPU-seconds</text><text id="details" fill="rgb(0,0,0)" x="10" y="541.00"> </text><text id="unzoom" class="hide" fill="rgb(0,0,0)" x="10" y="24.00">Reset Zoom</text><text id="search" fill="rgb(0,0,0)" x="1190" y="24.00">Search</text><text id="matched" fill="rgb(0,0,0)" x="1190" y="541.00"> </text><svg id="frames" x="10" width="1180" total_samples="20308"><g><title>asm_exc_page_fault (500 µs, 0.02%)</title><rect x="0.0345%" y="317" width="0.0246%" height="15" fill="rgb(236,145,34)" fg:x="7" fg:w="5"/><text x="0.2845%" y="327.50"></text></g><g><title>entry_SYSCALL_64_after_hwframe (300 µs, 0.01%)</title><rect x="0.0591%" y="317" width="0.0148%" height="15" fill="rgb(236,196,34)" fg:x="12" fg:w="3"/><text x="0.3091%" y="327.50"></text></g><g><title>do_syscall_64 (300 µs, 0.01%)</title><rect x="0.0591%" y="301" width="0.0148%" height="15" fill="rgb(236,189,34)" fg:x="12" fg:w="3"/><text x="0.3091%" y="311.50"></text></g><g><title>__x64_sys_clone3 (300 µs, 0.01%)</title><rect x="0.0591%" y="285" width="0.0148%" height="15" fill="rgb(236,154,34)" fg:x="12" fg:w="3"/><text x="0.3091%" y="295.50"></text></g><g><title>__do_sys_clone3 (300 µs, 0.01%)</title><rect x="0.0591%" y="269" width="0.0148%" height="15" fill="rgb(236,141,34)" fg:x="12" fg:w="3"/><text x="0.3091%" y="279.50"></text></g><g><title>kernel_clone (300 µs, 0.01%)</title><rect x="0.0591%" y="253" width="0.0148%" height="15" fill="rgb(236,144,34)" fg:x="12" fg:w="3"/><text x="0.3091%" y="263.50"></text></g><g><title>perf_event_groups_next (1,300 µs, 0.06%)</title><rect x="0.1330%" y="189" width="0.0640%" height="15" fill="rgb(236,184,34)" fg:x="27" fg:w="13"/><text x="0.3830%" y="199.50"></text></g><g><title>ctx_sched_in (3,000 µs, 0.15%)</title><rect x="0.1231%" y="237" width="0.1477%" height="15" fill="rgb(236,127,34)" fg:x="25" fg:w="30"/><text x="0.3731%" y="247.50"></text></g><g><title>ctx_groups_sched_in (3,000 µs, 0.15%)</title><rect x="0.1231%" y="221" width="0.1477%" height="15" fill="rgb(236,127,34)" fg:x="25" fg:w="30"/><text x="0.3731%" y="231.50"></text></g><g><title>visit_groups_merge.constprop.0.isra.0 (3,000 µs, 0.15%)</title><rect x="0.1231%" y="205" width="0.1477%" height="15" fill="rgb(236,113,34)" fg:x="25" fg:w="30"/><text x="0.3731%" y="215.50"></text></g><g><title>rb_next (1,500 µs, 0.07%)</title><rect x="0.1970%" y="189" width="0.0739%" height="15" fill="rgb(236,112,34)" fg:x="40" fg:w="15"/><text x="0.4470%" y="199.50"></text></g><g><title>__perf_event_task_sched_in (3,200 µs, 0.16%)</title><rect x="0.1182%" y="253" width="0.1576%" height="15" fill="rgb(236,141,34)" fg:x="24" fg:w="32"/><text x="0.3682%" y="263.50"></text></g><g><title>__rcu_read_unlock (400 µs, 0.02%)</title><rect x="0.2758%" y="253" width="0.0197%" height="15" fill="rgb(236,135,34)" fg:x="56" fg:w="4"/><text x="0.5258%" y="263.50"></text></g><g><title>schedule_tail (4,600 µs, 0.23%)</title><rect x="0.0739%" y="285" width="0.2265%" height="15" fill="rgb(236,164,34)" fg:x="15" fg:w="46"/><text x="0.3239%" y="295.50"></text></g><g><title>finish_task_switch.isra.0 (4,600 µs, 0.23%)</title><rect x="0.0739%" y="269" width="0.2265%" height="15" fill="rgb(236,177,34)" fg:x="15" fg:w="46"/><text x="0.3239%" y="279.50"></text></g><g><title>_start (6,001 µs, 0.30%)</title><rect x="0.0148%" y="477" width="0.2955%" height="15" fill="rgb(239,139,37)" fg:x="3" fg:w="60"/><text x="0.2648%" y="487.50"></text></g><g><title>__libc_start_main@@GLIBC_2.34 (6,001 µs, 0.30%)</title><rect x="0.0148%" y="461" width="0.2955%" height="15" fill="rgb(236,154,35)" fg:x="3" fg:w="60"/><text x="0.2648%" y="471.50"></text></g><g><title>__libc_start_call_main (6,001 µs, 0.30%)</title><rect x="0.0148%" y="445" width="0.2955%" height="15" fill="rgb(247,154,46)" fg:x="3" fg:w="60"/><text x="0.2648%" y="455.50"></text></g><g><title>main (6,001 µs, 0.30%)</title><rect x="0.0148%" y="429" width="0.2955%" height="15" fill="rgb(247,83,46)" fg:x="3" fg:w="60"/><text x="0.2648%" y="439.50"></text></g><g><title>std::sys::backtrace::__rust_begin_short_backtrace::&lt;fn(), ()&gt; (5,901 µs, 0.29%)</title><rect x="0.0197%" y="413" width="0.2905%" height="15" fill="rgb(239,146,38)" fg:x="4" fg:w="59"/><text x="0.2697%" y="423.50"></text></g><g><title>crossbeam_bench::main (5,901 µs, 0.29%)</title><rect x="0.0197%" y="397" width="0.2905%" height="15" fill="rgb(247,128,46)" fg:x="4" fg:w="59"/><text x="0.2697%" y="407.50"></text></g><g><title>&lt;std::thread::builder::Builder&gt;::spawn_unchecked::&lt;alloc::boxed::Box&lt;dyn core::ops::function::FnOnce&lt;(), Output = ()&gt; + core::marker::Send&gt;, ()&gt; (5,801 µs, 0.29%)</title><rect x="0.0246%" y="381" width="0.2856%" height="15" fill="rgb(239,179,38)" fg:x="5" fg:w="58"/><text x="0.2746%" y="391.50"></text></g><g><title>pthread_create@GLIBC_2.2.5 (5,701 µs, 0.28%)</title><rect x="0.0295%" y="365" width="0.2807%" height="15" fill="rgb(246,158,45)" fg:x="6" fg:w="57"/><text x="0.2795%" y="375.50"></text></g><g><title>create_thread (5,601 µs, 0.28%)</title><rect x="0.0345%" y="349" width="0.2758%" height="15" fill="rgb(241,121,40)" fg:x="7" fg:w="56"/><text x="0.2845%" y="359.50"></text></g><g><title>clone3 (5,601 µs, 0.28%)</title><rect x="0.0345%" y="333" width="0.2758%" height="15" fill="rgb(249,102,49)" fg:x="7" fg:w="56"/><text x="0.2845%" y="343.50"></text></g><g><title>ret_from_fork_asm (4,800 µs, 0.24%)</title><rect x="0.0739%" y="317" width="0.2364%" height="15" fill="rgb(236,162,34)" fg:x="15" fg:w="48"/><text x="0.3239%" y="327.50"></text></g><g><title>ret_from_fork (4,800 µs, 0.24%)</title><rect x="0.0739%" y="301" width="0.2364%" height="15" fill="rgb(236,162,34)" fg:x="15" fg:w="48"/><text x="0.3239%" y="311.50"></text></g><g><title>alloc_anon_folio (300 µs, 0.01%)</title><rect x="0.3299%" y="349" width="0.0148%" height="15" fill="rgb(236,128,34)" fg:x="67" fg:w="3"/><text x="0.5799%" y="359.50"></text></g><g><title>vma_alloc_folio (300 µs, 0.01%)</title><rect x="0.3299%" y="333" width="0.0148%" height="15" fill="rgb(236,112,34)" fg:x="67" fg:w="3"/><text x="0.5799%" y="343.50"></text></g><g><title>alloc_pages_mpol (300 µs, 0.01%)</title><rect x="0.3299%" y="317" width="0.0148%" height="15" fill="rgb(236,128,34)" fg:x="67" fg:w="3"/><text x="0.5799%" y="327.50"></text></g><g><title>__alloc_pages (300 µs, 0.01%)</title><rect x="0.3299%" y="301" width="0.0148%" height="15" fill="rgb(236,151,34)" fg:x="67" fg:w="3"/><text x="0.5799%" y="311.50"></text></g><g><title>get_page_from_freelist (300 µs, 0.01%)</title><rect x="0.3299%" y="285" width="0.0148%" height="15" fill="rgb(236,170,34)" fg:x="67" fg:w="3"/><text x="0.5799%" y="295.50"></text></g><g><title>handle_pte_fault (800 µs, 0.04%)</title><rect x="0.3102%" y="381" width="0.0394%" height="15" fill="rgb(236,146,34)" fg:x="63" fg:w="8"/><text x="0.5602%" y="391.50"></text></g><g><title>do_anonymous_page (800 µs, 0.04%)</title><rect x="0.3102%" y="365" width="0.0394%" height="15" fill="rgb(236,189,34)" fg:x="63" fg:w="8"/><text x="0.5602%" y="375.50"></text></g><g><title>handle_mm_fault (900 µs, 0.04%)</title><rect x="0.3102%" y="413" width="0.0443%" height="15" fill="rgb(236,146,34)" fg:x="63" fg:w="9"/><text x="0.5602%" y="423.50"></text></g><g><title>__handle_mm_fault (900 µs, 0.04%)</title><rect x="0.3102%" y="397" width="0.0443%" height="15" fill="rgb(236,128,34)" fg:x="63" fg:w="9"/><text x="0.5602%" y="407.50"></text></g><g><title>asm_exc_page_fault (1,000 µs, 0.05%)</title><rect x="0.3102%" y="461" width="0.0492%" height="15" fill="rgb(236,145,34)" fg:x="63" fg:w="10"/><text x="0.5602%" y="471.50"></text></g><g><title>exc_page_fault (1,000 µs, 0.05%)</title><rect x="0.3102%" y="445" width="0.0492%" height="15" fill="rgb(236,161,34)" fg:x="63" fg:w="10"/><text x="0.5602%" y="455.50"></text></g><g><title>do_user_addr_fault (1,000 µs, 0.05%)</title><rect x="0.3102%" y="429" width="0.0492%" height="15" fill="rgb(236,189,34)" fg:x="63" fg:w="10"/><text x="0.5602%" y="439.50"></text></g><g><title>&lt;std::sys::sync::mutex::futex::Mutex&gt;::lock_contended (1,800 µs, 0.09%)</title><rect x="0.3595%" y="381" width="0.0886%" height="15" fill="rgb(250,179,49)" fg:x="73" fg:w="18"/><text x="0.6095%" y="391.50"></text></g><g><title>&lt;std::sys::sync::mutex::futex::Mutex&gt;::lock_contended (312,331 µs, 15.38%)</title><rect x="14.4229%" y="365" width="15.3782%" height="15" fill="rgb(250,179,49)" fg:x="2929" fg:w="3123"/><text x="14.6729%" y="375.50">&lt;std::sys::sync::mutex::..</text></g><g><title>__errno_location (2,400 µs, 0.12%)</title><rect x="29.8011%" y="365" width="0.1182%" height="15" fill="rgb(247,138,46)" fg:x="6052" fg:w="24"/><text x="30.0511%" y="375.50"></text></g><g><title>asm_sysvec_apic_timer_interrupt (300 µs, 0.01%)</title><rect x="29.9192%" y="365" width="0.0148%" height="15" fill="rgb(236,145,34)" fg:x="6076" fg:w="3"/><text x="30.1692%" y="375.50"></text></g><g><title>sysvec_apic_timer_interrupt (300 µs, 0.01%)</title><rect x="29.9192%" y="349" width="0.0148%" height="15" fill="rgb(236,167,34)" fg:x="6076" fg:w="3"/><text x="30.1692%" y="359.50"></text></g><g><title>__sysvec_apic_timer_interrupt (300 µs, 0.01%)</title><rect x="29.9192%" y="333" width="0.0148%" height="15" fill="rgb(236,132,34)" fg:x="6076" fg:w="3"/><text x="30.1692%" y="343.50"></text></g><g><title>hrtimer_interrupt (300 µs, 0.01%)</title><rect x="29.9192%" y="317" width="0.0148%" height="15" fill="rgb(236,152,34)" fg:x="6076" fg:w="3"/><text x="30.1692%" y="327.50"></text></g><g><title>do_syscall_64 (1,500 µs, 0.07%)</title><rect x="30.5594%" y="349" width="0.0739%" height="15" fill="rgb(236,189,34)" fg:x="6206" fg:w="15"/><text x="30.8094%" y="359.50"></text></g><g><title>entry_SYSCALL_64 (11,301 µs, 0.56%)</title><rect x="30.6332%" y="349" width="0.5564%" height="15" fill="rgb(236,196,34)" fg:x="6221" fg:w="113"/><text x="30.8832%" y="359.50"></text></g><g><title>__x64_sys_futex (2,200 µs, 0.11%)</title><rect x="31.5885%" y="333" width="0.1083%" height="15" fill="rgb(236,154,34)" fg:x="6415" fg:w="22"/><text x="31.8385%" y="343.50"></text></g><g><title>__futex_wait (800 µs, 0.04%)</title><rect x="32.5586%" y="285" width="0.0394%" height="15" fill="rgb(236,135,34)" fg:x="6612" fg:w="8"/><text x="32.8086%" y="295.50"></text></g><g><title>futex_setup_timer (400 µs, 0.02%)</title><rect x="32.5980%" y="285" width="0.0197%" height="15" fill="rgb(236,152,34)" fg:x="6620" fg:w="4"/><text x="32.8480%" y="295.50"></text></g><g><title>_raw_spin_unlock (300 µs, 0.01%)</title><rect x="33.4794%" y="253" width="0.0148%" height="15" fill="rgb(236,166,34)" fg:x="6799" fg:w="3"/><text x="33.7294%" y="263.50"></text></g><g><title>futex_get_value_locked (2,200 µs, 0.11%)</title><rect x="33.4942%" y="253" width="0.1083%" height="15" fill="rgb(236,152,34)" fg:x="6802" fg:w="22"/><text x="33.7442%" y="263.50"></text></g><g><title>futex_q_lock (1,600 µs, 0.08%)</title><rect x="33.6025%" y="253" width="0.0788%" height="15" fill="rgb(236,152,34)" fg:x="6824" fg:w="16"/><text x="33.8525%" y="263.50"></text></g><g><title>futex_q_unlock (300 µs, 0.01%)</title><rect x="33.6813%" y="253" width="0.0148%" height="15" fill="rgb(236,152,34)" fg:x="6840" fg:w="3"/><text x="33.9313%" y="263.50"></text></g><g><title>futex_unqueue (1,000 µs, 0.05%)</title><rect x="33.6961%" y="253" width="0.0492%" height="15" fill="rgb(236,152,34)" fg:x="6843" fg:w="10"/><text x="33.9461%" y="263.50"></text></g><g><title>plist_add (1,800 µs, 0.09%)</title><rect x="33.8438%" y="237" width="0.0886%" height="15" fill="rgb(236,139,34)" fg:x="6873" fg:w="18"/><text x="34.0938%" y="247.50"></text></g><g><title>__x86_indirect_thunk_rax (300 µs, 0.01%)</title><rect x="34.3707%" y="205" width="0.0148%" height="15" fill="rgb(236,154,34)" fg:x="6980" fg:w="3"/><text x="34.6207%" y="215.50"></text></g><g><title>_raw_spin_lock (800 µs, 0.04%)</title><rect x="34.3855%" y="205" width="0.0394%" height="15" fill="rgb(236,166,34)" fg:x="6983" fg:w="8"/><text x="34.6355%" y="215.50"></text></g><g><title>balance_fair (1,600 µs, 0.08%)</title><rect x="34.4298%" y="205" width="0.0788%" height="15" fill="rgb(236,120,34)" fg:x="6992" fg:w="16"/><text x="34.6798%" y="215.50"></text></g><g><title>__calc_delta.constprop.0 (700 µs, 0.03%)</title><rect x="35.0108%" y="173" width="0.0345%" height="15" fill="rgb(236,144,34)" fg:x="7110" fg:w="7"/><text x="35.2608%" y="183.50"></text></g><g><title>avg_vruntime (700 µs, 0.03%)</title><rect x="35.0453%" y="173" width="0.0345%" height="15" fill="rgb(236,111,34)" fg:x="7117" fg:w="7"/><text x="35.2953%" y="183.50"></text></g><g><title>__calc_delta.constprop.0 (2,600 µs, 0.13%)</title><rect x="35.8676%" y="157" width="0.1280%" height="15" fill="rgb(236,144,34)" fg:x="7284" fg:w="26"/><text x="36.1176%" y="167.50"></text></g><g><title>__update_load_avg_cfs_rq (1,300 µs, 0.06%)</title><rect x="36.0006%" y="157" width="0.0640%" height="15" fill="rgb(236,125,34)" fg:x="7311" fg:w="13"/><text x="36.2506%" y="167.50"></text></g><g><title>__update_load_avg_se (800 µs, 0.04%)</title><rect x="36.0646%" y="157" width="0.0394%" height="15" fill="rgb(236,125,34)" fg:x="7324" fg:w="8"/><text x="36.3146%" y="167.50"></text></g><g><title>avg_vruntime (3,000 µs, 0.15%)</title><rect x="36.1040%" y="157" width="0.1477%" height="15" fill="rgb(236,111,34)" fg:x="7332" fg:w="30"/><text x="36.3540%" y="167.50"></text></g><g><title>srso_alias_safe_ret (600 µs, 0.03%)</title><rect x="36.2714%" y="157" width="0.0295%" height="15" fill="rgb(236,147,34)" fg:x="7366" fg:w="6"/><text x="36.5214%" y="167.50"></text></g><g><title>update_cfs_group (1,500 µs, 0.07%)</title><rect x="36.3010%" y="157" width="0.0739%" height="15" fill="rgb(236,150,34)" fg:x="7372" fg:w="15"/><text x="36.5510%" y="167.50"></text></g><g><title>reweight_entity (1,500 µs, 0.07%)</title><rect x="36.3010%" y="141" width="0.0739%" height="15" fill="rgb(236,152,34)" fg:x="7372" fg:w="15"/><text x="36.5510%" y="151.50"></text></g><g><title>__calc_delta.constprop.0 (2,100 µs, 0.10%)</title><rect x="36.8426%" y="141" width="0.1034%" height="15" fill="rgb(236,144,34)" fg:x="7482" fg:w="21"/><text x="37.0926%" y="151.50"></text></g><g><title>__cgroup_account_cputime (1,100 µs, 0.05%)</title><rect x="36.9460%" y="141" width="0.0542%" height="15" fill="rgb(236,144,34)" fg:x="7503" fg:w="11"/><text x="37.1960%" y="151.50"></text></g><g><title>cgroup_rstat_updated (400 µs, 0.02%)</title><rect x="36.9805%" y="125" width="0.0197%" height="15" fill="rgb(236,118,34)" fg:x="7510" fg:w="4"/><text x="37.2305%" y="135.50"></text></g><g><title>cpuacct_charge (2,800 µs, 0.14%)</title><rect x="37.0051%" y="141" width="0.1379%" height="15" fill="rgb(236,118,34)" fg:x="7515" fg:w="28"/><text x="37.2551%" y="151.50"></text></g><g><title>update_curr_se (1,600 µs, 0.08%)</title><rect x="37.1479%" y="141" width="0.0788%" height="15" fill="rgb(236,150,34)" fg:x="7544" fg:w="16"/><text x="37.3979%" y="151.50"></text></g><g><title>update_curr (18,302 µs, 0.90%)</title><rect x="36.3748%" y="157" width="0.9011%" height="15" fill="rgb(236,150,34)" fg:x="7387" fg:w="183"/><text x="36.6248%" y="167.50"></text></g><g><title>update_min_vruntime (1,000 µs, 0.05%)</title><rect x="37.2267%" y="141" width="0.0492%" height="15" fill="rgb(236,150,34)" fg:x="7560" fg:w="10"/><text x="37.4767%" y="151.50"></text></g><g><title>update_curr_se (500 µs, 0.02%)</title><rect x="37.2760%" y="157" width="0.0246%" height="15" fill="rgb(236,150,34)" fg:x="7570" fg:w="5"/><text x="37.5260%" y="167.50"></text></g><g><title>__update_load_avg_cfs_rq (4,100 µs, 0.20%)</title><rect x="37.8078%" y="141" width="0.2019%" height="15" fill="rgb(236,125,34)" fg:x="7678" fg:w="41"/><text x="38.0578%" y="151.50"></text></g><g><title>__update_load_avg_se (2,200 µs, 0.11%)</title><rect x="38.0097%" y="141" width="0.1083%" height="15" fill="rgb(236,125,34)" fg:x="7719" fg:w="22"/><text x="38.2597%" y="151.50"></text></g><g><title>update_load_avg (16,702 µs, 0.82%)</title><rect x="37.3006%" y="157" width="0.8223%" height="15" fill="rgb(236,150,34)" fg:x="7575" fg:w="167"/><text x="37.5506%" y="167.50"></text></g><g><title>dequeue_entity (64,306 µs, 3.17%)</title><rect x="35.0798%" y="173" width="3.1662%" height="15" fill="rgb(236,203,34)" fg:x="7124" fg:w="643"/><text x="35.3298%" y="183.50">deq..</text></g><g><title>update_min_vruntime (2,500 µs, 0.12%)</title><rect x="38.1229%" y="157" width="0.1231%" height="15" fill="rgb(236,150,34)" fg:x="7742" fg:w="25"/><text x="38.3729%" y="167.50"></text></g><g><title>srso_alias_safe_ret (900 µs, 0.04%)</title><rect x="38.2509%" y="173" width="0.0443%" height="15" fill="rgb(236,147,34)" fg:x="7768" fg:w="9"/><text x="38.5009%" y="183.50"></text></g><g><title>update_cfs_group (4,700 µs, 0.23%)</title><rect x="38.2953%" y="173" width="0.2314%" height="15" fill="rgb(236,150,34)" fg:x="7777" fg:w="47"/><text x="38.5453%" y="183.50"></text></g><g><title>update_curr (300 µs, 0.01%)</title><rect x="38.5267%" y="173" width="0.0148%" height="15" fill="rgb(236,150,34)" fg:x="7824" fg:w="3"/><text x="38.7767%" y="183.50"></text></g><g><title>update_load_avg (1,400 µs, 0.07%)</title><rect x="38.5415%" y="173" width="0.0689%" height="15" fill="rgb(236,150,34)" fg:x="7827" fg:w="14"/><text x="38.7915%" y="183.50"></text></g><g><title>dequeue_task_fair (83,208 µs, 4.10%)</title><rect x="34.5874%" y="189" width="4.0969%" height="15" fill="rgb(236,203,34)" fg:x="7024" fg:w="832"/><text x="34.8374%" y="199.50">dequ..</text></g><g><title>update_min_vruntime (1,500 µs, 0.07%)</title><rect x="38.6104%" y="173" width="0.0739%" height="15" fill="rgb(236,150,34)" fg:x="7841" fg:w="15"/><text x="38.8604%" y="183.50"></text></g><g><title>hrtick_update (400 µs, 0.02%)</title><rect x="38.6843%" y="189" width="0.0197%" height="15" fill="rgb(236,152,34)" fg:x="7856" fg:w="4"/><text x="38.9343%" y="199.50"></text></g><g><title>sched_core_dequeue (600 µs, 0.03%)</title><rect x="38.7040%" y="189" width="0.0295%" height="15" fill="rgb(236,164,34)" fg:x="7860" fg:w="6"/><text x="38.9540%" y="199.50"></text></g><g><title>dequeue_task (86,209 µs, 4.24%)</title><rect x="34.5086%" y="205" width="4.2446%" height="15" fill="rgb(236,203,34)" fg:x="7008" fg:w="862"/><text x="34.7586%" y="215.50">deque..</text></g><g><title>srso_alias_safe_ret (300 µs, 0.01%)</title><rect x="38.7384%" y="189" width="0.0148%" height="15" fill="rgb(236,147,34)" fg:x="7867" fg:w="3"/><text x="38.9884%" y="199.50"></text></g><g><title>dequeue_task_fair (700 µs, 0.03%)</title><rect x="38.7532%" y="205" width="0.0345%" height="15" fill="rgb(236,203,34)" fg:x="7870" fg:w="7"/><text x="39.0032%" y="215.50"></text></g><g><title>perf_event_groups_next (500 µs, 0.02%)</title><rect x="38.9403%" y="141" width="0.0246%" height="15" fill="rgb(236,184,34)" fg:x="7908" fg:w="5"/><text x="39.1903%" y="151.50"></text></g><g><title>ctx_sched_in (1,400 µs, 0.07%)</title><rect x="38.9206%" y="173" width="0.0689%" height="15" fill="rgb(236,127,34)" fg:x="7904" fg:w="14"/><text x="39.1706%" y="183.50"></text></g><g><title>ctx_groups_sched_in (1,400 µs, 0.07%)</title><rect x="38.9206%" y="157" width="0.0689%" height="15" fill="rgb(236,127,34)" fg:x="7904" fg:w="14"/><text x="39.1706%" y="167.50"></text></g><g><title>visit_groups_merge.constprop.0.isra.0 (500 µs, 0.02%)</title><rect x="38.9649%" y="141" width="0.0246%" height="15" fill="rgb(236,113,34)" fg:x="7913" fg:w="5"/><text x="39.2149%" y="151.50"></text></g><g><title>rb_next (400 µs, 0.02%)</title><rect x="38.9699%" y="125" width="0.0197%" height="15" fill="rgb(236,112,34)" fg:x="7914" fg:w="4"/><text x="39.2199%" y="135.50"></text></g><g><title>__perf_event_task_sched_in (2,600 µs, 0.13%)</title><rect x="38.8862%" y="189" width="0.1280%" height="15" fill="rgb(236,141,34)" fg:x="7897" fg:w="26"/><text x="39.1362%" y="199.50"></text></g><g><title>perf_ctx_sched_task_cb (500 µs, 0.02%)</title><rect x="38.9896%" y="173" width="0.0246%" height="15" fill="rgb(236,184,34)" fg:x="7918" fg:w="5"/><text x="39.2396%" y="183.50"></text></g><g><title>__rcu_read_unlock (900 µs, 0.04%)</title><rect x="39.0142%" y="189" width="0.0443%" height="15" fill="rgb(236,135,34)" fg:x="7923" fg:w="9"/><text x="39.2642%" y="199.50"></text></g><g><title>__sysvec_apic_timer_interrupt (300 µs, 0.01%)</title><rect x="39.0585%" y="157" width="0.0148%" height="15" fill="rgb(236,132,34)" fg:x="7932" fg:w="3"/><text x="39.3085%" y="167.50"></text></g><g><title>hrtimer_interrupt (300 µs, 0.01%)</title><rect x="39.0585%" y="141" width="0.0148%" height="15" fill="rgb(236,152,34)" fg:x="7932" fg:w="3"/><text x="39.3085%" y="151.50"></text></g><g><title>asm_sysvec_apic_timer_interrupt (400 µs, 0.02%)</title><rect x="39.0585%" y="189" width="0.0197%" height="15" fill="rgb(236,145,34)" fg:x="7932" fg:w="4"/><text x="39.3085%" y="199.50"></text></g><g><title>sysvec_apic_timer_interrupt (400 µs, 0.02%)</title><rect x="39.0585%" y="173" width="0.0197%" height="15" fill="rgb(236,167,34)" fg:x="7932" fg:w="4"/><text x="39.3085%" y="183.50"></text></g><g><title>finish_task_switch.isra.0 (6,201 µs, 0.31%)</title><rect x="38.7877%" y="205" width="0.3053%" height="15" fill="rgb(236,177,34)" fg:x="7877" fg:w="62"/><text x="39.0377%" y="215.50"></text></g><g><title>__update_idle_core (600 µs, 0.03%)</title><rect x="39.4918%" y="189" width="0.0295%" height="15" fill="rgb(236,125,34)" fg:x="8020" fg:w="6"/><text x="39.7418%" y="199.50"></text></g><g><title>__msecs_to_jiffies (900 µs, 0.04%)</title><rect x="39.5312%" y="173" width="0.0443%" height="15" fill="rgb(236,151,34)" fg:x="8028" fg:w="9"/><text x="39.7812%" y="183.50"></text></g><g><title>__rcu_read_unlock (700 µs, 0.03%)</title><rect x="39.5854%" y="173" width="0.0345%" height="15" fill="rgb(236,135,34)" fg:x="8039" fg:w="7"/><text x="39.8354%" y="183.50"></text></g><g><title>balance_fair (7,401 µs, 0.36%)</title><rect x="39.5214%" y="189" width="0.3644%" height="15" fill="rgb(236,120,34)" fg:x="8026" fg:w="74"/><text x="39.7714%" y="199.50"></text></g><g><title>newidle_balance (5,401 µs, 0.27%)</title><rect x="39.6199%" y="173" width="0.2659%" height="15" fill="rgb(236,184,34)" fg:x="8046" fg:w="54"/><text x="39.8699%" y="183.50"></text></g><g><title>pick_task_stop (300 µs, 0.01%)</title><rect x="39.8956%" y="189" width="0.0148%" height="15" fill="rgb(236,174,34)" fg:x="8102" fg:w="3"/><text x="40.1456%" y="199.50"></text></g><g><title>put_prev_entity (600 µs, 0.03%)</title><rect x="39.9104%" y="189" width="0.0295%" height="15" fill="rgb(236,152,34)" fg:x="8105" fg:w="6"/><text x="40.1604%" y="199.50"></text></g><g><title>check_cfs_rq_runtime (700 µs, 0.03%)</title><rect x="40.1024%" y="173" width="0.0345%" height="15" fill="rgb(236,116,34)" fg:x="8144" fg:w="7"/><text x="40.3524%" y="183.50"></text></g><g><title>put_prev_entity (3,400 µs, 0.17%)</title><rect x="40.1369%" y="173" width="0.1674%" height="15" fill="rgb(236,152,34)" fg:x="8151" fg:w="34"/><text x="40.3869%" y="183.50"></text></g><g><title>put_prev_task_fair (7,701 µs, 0.38%)</title><rect x="39.9399%" y="189" width="0.3792%" height="15" fill="rgb(236,152,34)" fg:x="8111" fg:w="77"/><text x="40.1899%" y="199.50"></text></g><g><title>srso_alias_safe_ret (300 µs, 0.01%)</title><rect x="40.3043%" y="173" width="0.0148%" height="15" fill="rgb(236,147,34)" fg:x="8185" fg:w="3"/><text x="40.5543%" y="183.50"></text></g><g><title>set_next_task_idle (3,600 µs, 0.18%)</title><rect x="40.3191%" y="189" width="0.1773%" height="15" fill="rgb(236,154,34)" fg:x="8188" fg:w="36"/><text x="40.5691%" y="199.50"></text></g><g><title>__update_idle_core (3,100 µs, 0.15%)</title><rect x="40.3437%" y="173" width="0.1526%" height="15" fill="rgb(236,125,34)" fg:x="8193" fg:w="31"/><text x="40.5937%" y="183.50"></text></g><g><title>srso_alias_safe_ret (300 µs, 0.01%)</title><rect x="40.4964%" y="189" width="0.0148%" height="15" fill="rgb(236,147,34)" fg:x="8224" fg:w="3"/><text x="40.7464%" y="199.50"></text></g><g><title>pick_next_task (29,103 µs, 1.43%)</title><rect x="39.0930%" y="205" width="1.4329%" height="15" fill="rgb(236,174,34)" fg:x="7939" fg:w="291"/><text x="39.3430%" y="215.50"></text></g><g><title>task_vruntime_update (300 µs, 0.01%)</title><rect x="40.5111%" y="189" width="0.0148%" height="15" fill="rgb(236,114,34)" fg:x="8227" fg:w="3"/><text x="40.7611%" y="199.50"></text></g><g><title>pick_task_dl (500 µs, 0.02%)</title><rect x="40.5259%" y="205" width="0.0246%" height="15" fill="rgb(236,174,34)" fg:x="8230" fg:w="5"/><text x="40.7759%" y="215.50"></text></g><g><title>pick_task_fair (600 µs, 0.03%)</title><rect x="40.5505%" y="205" width="0.0295%" height="15" fill="rgb(236,174,34)" fg:x="8235" fg:w="6"/><text x="40.8005%" y="215.50"></text></g><g><title>pick_task_idle (1,000 µs, 0.05%)</title><rect x="40.5801%" y="205" width="0.0492%" height="15" fill="rgb(236,174,34)" fg:x="8241" fg:w="10"/><text x="40.8301%" y="215.50"></text></g><g><title>pick_task_rt (800 µs, 0.04%)</title><rect x="40.6293%" y="205" width="0.0394%" height="15" fill="rgb(236,174,34)" fg:x="8251" fg:w="8"/><text x="40.8793%" y="215.50"></text></g><g><title>pick_task_stop (1,100 µs, 0.05%)</title><rect x="40.6687%" y="205" width="0.0542%" height="15" fill="rgb(236,174,34)" fg:x="8259" fg:w="11"/><text x="40.9187%" y="215.50"></text></g><g><title>_raw_spin_lock (700 µs, 0.03%)</title><rect x="40.7524%" y="173" width="0.0345%" height="15" fill="rgb(236,166,34)" fg:x="8276" fg:w="7"/><text x="41.0024%" y="183.50"></text></g><g><title>perf_ctx_disable (400 µs, 0.02%)</title><rect x="40.7918%" y="173" width="0.0197%" height="15" fill="rgb(236,184,34)" fg:x="8284" fg:w="4"/><text x="41.0418%" y="183.50"></text></g><g><title>perf_ctx_sched_task_cb (500 µs, 0.02%)</title><rect x="40.8115%" y="173" width="0.0246%" height="15" fill="rgb(236,184,34)" fg:x="8288" fg:w="5"/><text x="41.0615%" y="183.50"></text></g><g><title>native_read_msr (400 µs, 0.02%)</title><rect x="41.1562%" y="77" width="0.0197%" height="15" fill="rgb(236,158,34)" fg:x="8358" fg:w="4"/><text x="41.4062%" y="87.50"></text></g><g><title>perf_ibs_del (7,901 µs, 0.39%)</title><rect x="41.1513%" y="93" width="0.3890%" height="15" fill="rgb(236,184,34)" fg:x="8357" fg:w="79"/><text x="41.4013%" y="103.50"></text></g><g><title>perf_ibs_stop (7,401 µs, 0.36%)</title><rect x="41.1759%" y="77" width="0.3644%" height="15" fill="rgb(236,184,34)" fg:x="8362" fg:w="74"/><text x="41.4259%" y="87.50"></text></g><g><title>native_read_msr (5,601 µs, 0.28%)</title><rect x="41.2645%" y="61" width="0.2758%" height="15" fill="rgb(236,158,34)" fg:x="8380" fg:w="56"/><text x="41.5145%" y="71.50"></text></g><g><title>event_sched_out (9,201 µs, 0.45%)</title><rect x="41.1119%" y="109" width="0.4530%" height="15" fill="rgb(236,165,34)" fg:x="8349" fg:w="92"/><text x="41.3619%" y="119.50"></text></g><g><title>perf_ibs_stop (500 µs, 0.02%)</title><rect x="41.5403%" y="93" width="0.0246%" height="15" fill="rgb(236,184,34)" fg:x="8436" fg:w="5"/><text x="41.7903%" y="103.50"></text></g><g><title>perf_ibs_del (400 µs, 0.02%)</title><rect x="41.5649%" y="109" width="0.0197%" height="15" fill="rgb(236,184,34)" fg:x="8441" fg:w="4"/><text x="41.8149%" y="119.50"></text></g><g><title>__pmu_ctx_sched_out (10,701 µs, 0.53%)</title><rect x="41.0626%" y="141" width="0.5269%" height="15" fill="rgb(236,141,34)" fg:x="8339" fg:w="107"/><text x="41.3126%" y="151.50"></text></g><g><title>group_sched_out (10,201 µs, 0.50%)</title><rect x="41.0873%" y="125" width="0.5023%" height="15" fill="rgb(236,176,34)" fg:x="8344" fg:w="102"/><text x="41.3373%" y="135.50"></text></g><g><title>group_sched_out (300 µs, 0.01%)</title><rect x="41.5895%" y="141" width="0.0148%" height="15" fill="rgb(236,176,34)" fg:x="8446" fg:w="3"/><text x="41.8395%" y="151.50"></text></g><g><title>native_sched_clock (300 µs, 0.01%)</title><rect x="41.6929%" y="109" width="0.0148%" height="15" fill="rgb(236,158,34)" fg:x="8467" fg:w="3"/><text x="41.9429%" y="119.50"></text></g><g><title>local_clock (3,900 µs, 0.19%)</title><rect x="41.6043%" y="141" width="0.1920%" height="15" fill="rgb(236,151,34)" fg:x="8449" fg:w="39"/><text x="41.8543%" y="151.50"></text></g><g><title>local_clock_noinstr (3,200 µs, 0.16%)</title><rect x="41.6388%" y="125" width="0.1576%" height="15" fill="rgb(236,151,34)" fg:x="8456" fg:w="32"/><text x="41.8888%" y="135.50"></text></g><g><title>sched_clock_noinstr (1,800 µs, 0.09%)</title><rect x="41.7077%" y="109" width="0.0886%" height="15" fill="rgb(236,164,34)" fg:x="8470" fg:w="18"/><text x="41.9577%" y="119.50"></text></g><g><title>native_sched_clock (1,800 µs, 0.09%)</title><rect x="41.7077%" y="93" width="0.0886%" height="15" fill="rgb(236,158,34)" fg:x="8470" fg:w="18"/><text x="41.9577%" y="103.50"></text></g><g><title>ctx_sched_out (16,402 µs, 0.81%)</title><rect x="40.9937%" y="157" width="0.8076%" height="15" fill="rgb(236,127,34)" fg:x="8325" fg:w="164"/><text x="41.2437%" y="167.50"></text></g><g><title>local_clock (400 µs, 0.02%)</title><rect x="41.8013%" y="157" width="0.0197%" height="15" fill="rgb(236,151,34)" fg:x="8489" fg:w="4"/><text x="42.0513%" y="167.50"></text></g><g><title>perf_ctx_disable (1,000 µs, 0.05%)</title><rect x="41.8210%" y="157" width="0.0492%" height="15" fill="rgb(236,184,34)" fg:x="8493" fg:w="10"/><text x="42.0710%" y="167.50"></text></g><g><title>perf_ctx_sched_task_cb (600 µs, 0.03%)</title><rect x="41.8702%" y="157" width="0.0295%" height="15" fill="rgb(236,184,34)" fg:x="8503" fg:w="6"/><text x="42.1202%" y="167.50"></text></g><g><title>perf_pmu_nop_void (500 µs, 0.02%)</title><rect x="41.8997%" y="157" width="0.0246%" height="15" fill="rgb(236,184,34)" fg:x="8509" fg:w="5"/><text x="42.1497%" y="167.50"></text></g><g><title>perf_event_context_sched_out (22,202 µs, 1.09%)</title><rect x="40.8361%" y="173" width="1.0932%" height="15" fill="rgb(236,184,34)" fg:x="8293" fg:w="222"/><text x="41.0861%" y="183.50"></text></g><g><title>__perf_event_task_sched_out (24,102 µs, 1.19%)</title><rect x="40.7475%" y="189" width="1.1867%" height="15" fill="rgb(236,141,34)" fg:x="8275" fg:w="241"/><text x="40.9975%" y="199.50"></text></g><g><title>prepare_task_switch (24,702 µs, 1.22%)</title><rect x="40.7229%" y="205" width="1.2163%" height="15" fill="rgb(236,177,34)" fg:x="8270" fg:w="247"/><text x="40.9729%" y="215.50"></text></g><g><title>psi_group_change (500 µs, 0.02%)</title><rect x="41.9441%" y="205" width="0.0246%" height="15" fill="rgb(236,159,34)" fg:x="8518" fg:w="5"/><text x="42.1941%" y="215.50"></text></g><g><title>psi_group_change (11,501 µs, 0.57%)</title><rect x="42.3774%" y="189" width="0.5663%" height="15" fill="rgb(236,159,34)" fg:x="8606" fg:w="115"/><text x="42.6274%" y="199.50"></text></g><g><title>record_times (300 µs, 0.01%)</title><rect x="42.9437%" y="189" width="0.0148%" height="15" fill="rgb(236,178,34)" fg:x="8721" fg:w="3"/><text x="43.1937%" y="199.50"></text></g><g><title>sched_clock (900 µs, 0.04%)</title><rect x="42.9978%" y="173" width="0.0443%" height="15" fill="rgb(236,164,34)" fg:x="8732" fg:w="9"/><text x="43.2478%" y="183.50"></text></g><g><title>sched_clock_noinstr (600 µs, 0.03%)</title><rect x="43.0126%" y="157" width="0.0295%" height="15" fill="rgb(236,164,34)" fg:x="8735" fg:w="6"/><text x="43.2626%" y="167.50"></text></g><g><title>native_sched_clock (600 µs, 0.03%)</title><rect x="43.0126%" y="141" width="0.0295%" height="15" fill="rgb(236,158,34)" fg:x="8735" fg:w="6"/><text x="43.2626%" y="151.50"></text></g><g><title>sched_clock_cpu (1,800 µs, 0.09%)</title><rect x="42.9634%" y="189" width="0.0886%" height="15" fill="rgb(236,164,34)" fg:x="8725" fg:w="18"/><text x="43.2134%" y="199.50"></text></g><g><title>psi_task_switch (22,202 µs, 1.09%)</title><rect x="41.9687%" y="205" width="1.0932%" height="15" fill="rgb(236,159,34)" fg:x="8523" fg:w="222"/><text x="42.2187%" y="215.50"></text></g><g><title>put_prev_task_fair (400 µs, 0.02%)</title><rect x="43.0618%" y="205" width="0.0197%" height="15" fill="rgb(236,152,34)" fg:x="8745" fg:w="4"/><text x="43.3118%" y="215.50"></text></g><g><title>raw_spin_rq_lock_nested (12,001 µs, 0.59%)</title><rect x="43.0815%" y="205" width="0.5909%" height="15" fill="rgb(236,117,34)" fg:x="8749" fg:w="120"/><text x="43.3315%" y="215.50"></text></g><g><title>_raw_spin_lock (11,001 µs, 0.54%)</title><rect x="43.1308%" y="189" width="0.5417%" height="15" fill="rgb(236,166,34)" fg:x="8759" fg:w="110"/><text x="43.3808%" y="199.50"></text></g><g><title>native_queued_spin_lock_slowpath (11,001 µs, 0.54%)</title><rect x="43.1308%" y="173" width="0.5417%" height="15" fill="rgb(236,158,34)" fg:x="8759" fg:w="110"/><text x="43.3808%" y="183.50"></text></g><g><title>rcu_note_context_switch (600 µs, 0.03%)</title><rect x="43.6724%" y="205" width="0.0295%" height="15" fill="rgb(236,169,34)" fg:x="8869" fg:w="6"/><text x="43.9224%" y="215.50"></text></g><g><title>sched_clock_cpu (500 µs, 0.02%)</title><rect x="43.7020%" y="205" width="0.0246%" height="15" fill="rgb(236,164,34)" fg:x="8875" fg:w="5"/><text x="43.9520%" y="215.50"></text></g><g><title>set_next_task_idle (700 µs, 0.03%)</title><rect x="43.7266%" y="205" width="0.0345%" height="15" fill="rgb(236,154,34)" fg:x="8880" fg:w="7"/><text x="43.9766%" y="215.50"></text></g><g><title>srso_alias_safe_ret (1,200 µs, 0.06%)</title><rect x="43.7709%" y="205" width="0.0591%" height="15" fill="rgb(236,147,34)" fg:x="8889" fg:w="12"/><text x="44.0209%" y="215.50"></text></g><g><title>task_vruntime_update (300 µs, 0.01%)</title><rect x="43.8300%" y="205" width="0.0148%" height="15" fill="rgb(236,114,34)" fg:x="8901" fg:w="3"/><text x="44.0800%" y="215.50"></text></g><g><title>__schedule (204,720 µs, 10.08%)</title><rect x="33.9423%" y="221" width="10.0798%" height="15" fill="rgb(236,132,34)" fg:x="6893" fg:w="2047"/><text x="34.1923%" y="231.50">__schedule</text></g><g><title>update_rq_clock (3,600 µs, 0.18%)</title><rect x="43.8448%" y="205" width="0.1773%" height="15" fill="rgb(236,150,34)" fg:x="8904" fg:w="36"/><text x="44.0948%" y="215.50"></text></g><g><title>sched_clock_cpu (2,300 µs, 0.11%)</title><rect x="43.9088%" y="189" width="0.1133%" height="15" fill="rgb(236,164,34)" fg:x="8917" fg:w="23"/><text x="44.1588%" y="199.50"></text></g><g><title>sched_clock (1,500 µs, 0.07%)</title><rect x="43.9482%" y="173" width="0.0739%" height="15" fill="rgb(236,164,34)" fg:x="8925" fg:w="15"/><text x="44.1982%" y="183.50"></text></g><g><title>sched_clock_noinstr (1,300 µs, 0.06%)</title><rect x="43.9580%" y="157" width="0.0640%" height="15" fill="rgb(236,164,34)" fg:x="8927" fg:w="13"/><text x="44.2080%" y="167.50"></text></g><g><title>native_sched_clock (1,300 µs, 0.06%)</title><rect x="43.9580%" y="141" width="0.0640%" height="15" fill="rgb(236,158,34)" fg:x="8927" fg:w="13"/><text x="44.2080%" y="151.50"></text></g><g><title>raw_spin_rq_lock_nested (900 µs, 0.04%)</title><rect x="44.0467%" y="221" width="0.0443%" height="15" fill="rgb(236,117,34)" fg:x="8945" fg:w="9"/><text x="44.2967%" y="231.50"></text></g><g><title>futex_wait_queue (210,521 µs, 10.37%)</title><rect x="33.7453%" y="253" width="10.3654%" height="15" fill="rgb(236,152,34)" fg:x="6853" fg:w="2105"/><text x="33.9953%" y="263.50">futex_wait_queue</text></g><g><title>schedule (206,721 µs, 10.18%)</title><rect x="33.9324%" y="237" width="10.1783%" height="15" fill="rgb(236,164,34)" fg:x="6891" fg:w="2067"/><text x="34.1824%" y="247.50">schedule</text></g><g><title>update_rq_clock (300 µs, 0.01%)</title><rect x="44.0959%" y="221" width="0.0148%" height="15" fill="rgb(236,150,34)" fg:x="8955" fg:w="3"/><text x="44.3459%" y="231.50"></text></g><g><title>__get_user_nocheck_4 (33,303 µs, 1.64%)</title><rect x="44.6524%" y="237" width="1.6397%" height="15" fill="rgb(236,132,34)" fg:x="9068" fg:w="333"/><text x="44.9024%" y="247.50"></text></g><g><title>_raw_spin_lock (16,302 µs, 0.80%)</title><rect x="46.2921%" y="237" width="0.8026%" height="15" fill="rgb(236,166,34)" fg:x="9401" fg:w="163"/><text x="46.5421%" y="247.50"></text></g><g><title>_raw_spin_unlock (800 µs, 0.04%)</title><rect x="47.0947%" y="237" width="0.0394%" height="15" fill="rgb(236,166,34)" fg:x="9564" fg:w="8"/><text x="47.3447%" y="247.50"></text></g><g><title>futex_get_value_locked (4,900 µs, 0.24%)</title><rect x="47.1391%" y="237" width="0.2413%" height="15" fill="rgb(236,152,34)" fg:x="9573" fg:w="49"/><text x="47.3891%" y="247.50"></text></g><g><title>futex_hash (4,400 µs, 0.22%)</title><rect x="47.3803%" y="237" width="0.2167%" height="15" fill="rgb(236,152,34)" fg:x="9622" fg:w="44"/><text x="47.6303%" y="247.50"></text></g><g><title>_raw_spin_lock (157,016 µs, 7.73%)</title><rect x="48.8674%" y="221" width="7.7309%" height="15" fill="rgb(236,166,34)" fg:x="9924" fg:w="1570"/><text x="49.1174%" y="231.50">_raw_spin_l..</text></g><g><title>native_queued_spin_lock_slowpath (155,816 µs, 7.67%)</title><rect x="48.9265%" y="205" width="7.6719%" height="15" fill="rgb(236,158,34)" fg:x="9936" fg:w="1558"/><text x="49.1765%" y="215.50">native_queu..</text></g><g><title>futex_q_lock (183,318 µs, 9.03%)</title><rect x="47.5970%" y="237" width="9.0260%" height="15" fill="rgb(236,152,34)" fg:x="9666" fg:w="1833"/><text x="47.8470%" y="247.50">futex_q_lock</text></g><g><title>srso_alias_safe_ret (300 µs, 0.01%)</title><rect x="56.6082%" y="221" width="0.0148%" height="15" fill="rgb(236,147,34)" fg:x="11496" fg:w="3"/><text x="56.8582%" y="231.50"></text></g><g><title>_raw_spin_unlock (3,400 µs, 0.17%)</title><rect x="57.7703%" y="221" width="0.1674%" height="15" fill="rgb(236,166,34)" fg:x="11732" fg:w="34"/><text x="58.0203%" y="231.50"></text></g><g><title>futex_q_unlock (26,803 µs, 1.32%)</title><rect x="56.6230%" y="237" width="1.3197%" height="15" fill="rgb(236,152,34)" fg:x="11499" fg:w="268"/><text x="56.8730%" y="247.50"></text></g><g><title>get_futex_key (1,000 µs, 0.05%)</title><rect x="57.9427%" y="237" width="0.0492%" height="15" fill="rgb(236,170,34)" fg:x="11767" fg:w="10"/><text x="58.1927%" y="247.50"></text></g><g><title>futex_wait_setup (282,628 µs, 13.92%)</title><rect x="44.1107%" y="253" width="13.9157%" height="15" fill="rgb(236,152,34)" fg:x="8958" fg:w="2826"/><text x="44.3607%" y="263.50">futex_wait_setup</text></g><g><title>srso_alias_safe_ret (600 µs, 0.03%)</title><rect x="57.9968%" y="237" width="0.0295%" height="15" fill="rgb(236,147,34)" fg:x="11778" fg:w="6"/><text x="58.2468%" y="247.50"></text></g><g><title>schedule (400 µs, 0.02%)</title><rect x="58.0313%" y="253" width="0.0197%" height="15" fill="rgb(236,164,34)" fg:x="11785" fg:w="4"/><text x="58.2813%" y="263.50"></text></g><g><title>__futex_wait (506,351 µs, 24.93%)</title><rect x="33.1593%" y="269" width="24.9311%" height="15" fill="rgb(236,135,34)" fg:x="6734" fg:w="5063"/><text x="33.4093%" y="279.50">__futex_wait</text></g><g><title>srso_alias_safe_ret (800 µs, 0.04%)</title><rect x="58.0510%" y="253" width="0.0394%" height="15" fill="rgb(236,147,34)" fg:x="11789" fg:w="8"/><text x="58.3010%" y="263.50"></text></g><g><title>futex_wait_setup (500 µs, 0.02%)</title><rect x="58.1052%" y="269" width="0.0246%" height="15" fill="rgb(236,152,34)" fg:x="11800" fg:w="5"/><text x="58.3552%" y="279.50"></text></g><g><title>futex_wait (518,352 µs, 25.52%)</title><rect x="32.6177%" y="285" width="25.5220%" height="15" fill="rgb(236,152,34)" fg:x="6624" fg:w="5183"/><text x="32.8677%" y="295.50">futex_wait</text></g><g><title>do_futex (520,952 µs, 25.65%)</title><rect x="32.4995%" y="301" width="25.6500%" height="15" fill="rgb(236,189,34)" fg:x="6600" fg:w="5209"/><text x="32.7495%" y="311.50">do_futex</text></g><g><title>__x64_sys_futex (526,753 µs, 25.94%)</title><rect x="32.2287%" y="317" width="25.9356%" height="15" fill="rgb(236,154,34)" fg:x="6545" fg:w="5267"/><text x="32.4787%" y="327.50">__x64_sys_futex</text></g><g><title>blkcg_maybe_throttle_current (800 µs, 0.04%)</title><rect x="58.1741%" y="317" width="0.0394%" height="15" fill="rgb(236,85,34)" fg:x="11814" fg:w="8"/><text x="58.4241%" y="327.50"></text></g><g><title>do_futex (2,800 µs, 0.14%)</title><rect x="58.2135%" y="317" width="0.1379%" height="15" fill="rgb(236,189,34)" fg:x="11822" fg:w="28"/><text x="58.4635%" y="327.50"></text></g><g><title>srso_alias_safe_ret (500 µs, 0.02%)</title><rect x="58.3711%" y="317" width="0.0246%" height="15" fill="rgb(236,147,34)" fg:x="11854" fg:w="5"/><text x="58.6211%" y="327.50"></text></g><g><title>switch_fpu_return (400 µs, 0.02%)</title><rect x="58.3957%" y="317" width="0.0197%" height="15" fill="rgb(236,115,34)" fg:x="11859" fg:w="4"/><text x="58.6457%" y="327.50"></text></g><g><title>__put_user_8 (1,800 µs, 0.09%)</title><rect x="59.2427%" y="285" width="0.0886%" height="15" fill="rgb(236,141,34)" fg:x="12031" fg:w="18"/><text x="59.4927%" y="295.50"></text></g><g><title>rseq_get_rseq_cs (500 µs, 0.02%)</title><rect x="59.3313%" y="285" width="0.0246%" height="15" fill="rgb(236,156,34)" fg:x="12049" fg:w="5"/><text x="59.5813%" y="295.50"></text></g><g><title>__get_user_8 (2,000 µs, 0.10%)</title><rect x="59.4889%" y="269" width="0.0985%" height="15" fill="rgb(236,132,34)" fg:x="12081" fg:w="20"/><text x="59.7389%" y="279.50"></text></g><g><title>rseq_ip_fixup (5,501 µs, 0.27%)</title><rect x="59.3559%" y="285" width="0.2708%" height="15" fill="rgb(236,156,34)" fg:x="12054" fg:w="55"/><text x="59.6059%" y="295.50"></text></g><g><title>rseq_get_rseq_cs (800 µs, 0.04%)</title><rect x="59.5874%" y="269" width="0.0394%" height="15" fill="rgb(236,156,34)" fg:x="12101" fg:w="8"/><text x="59.8374%" y="279.50"></text></g><g><title>__rseq_handle_notify_resume (10,101 µs, 0.50%)</title><rect x="59.2230%" y="301" width="0.4973%" height="15" fill="rgb(236,135,34)" fg:x="12027" fg:w="101"/><text x="59.4730%" y="311.50"></text></g><g><title>rseq_update_cpu_node_id (1,900 µs, 0.09%)</title><rect x="59.6267%" y="285" width="0.0936%" height="15" fill="rgb(236,156,34)" fg:x="12109" fg:w="19"/><text x="59.8767%" y="295.50"></text></g><g><title>blkcg_maybe_throttle_current (900 µs, 0.04%)</title><rect x="59.7203%" y="301" width="0.0443%" height="15" fill="rgb(236,85,34)" fg:x="12128" fg:w="9"/><text x="59.9703%" y="311.50"></text></g><g><title>fpregs_assert_state_consistent (300 µs, 0.01%)</title><rect x="59.7646%" y="301" width="0.0148%" height="15" fill="rgb(236,184,34)" fg:x="12137" fg:w="3"/><text x="60.0146%" y="311.50"></text></g><g><title>mem_cgroup_handle_over_high (1,000 µs, 0.05%)</title><rect x="59.7794%" y="301" width="0.0492%" height="15" fill="rgb(236,144,34)" fg:x="12140" fg:w="10"/><text x="60.0294%" y="311.50"></text></g><g><title>rseq_update_cpu_node_id (400 µs, 0.02%)</title><rect x="59.8336%" y="301" width="0.0197%" height="15" fill="rgb(236,156,34)" fg:x="12151" fg:w="4"/><text x="60.0836%" y="311.50"></text></g><g><title>do_syscall_64 (572,057 µs, 28.17%)</title><rect x="31.7067%" y="333" width="28.1662%" height="15" fill="rgb(236,189,34)" fg:x="6439" fg:w="5720"/><text x="31.9567%" y="343.50">do_syscall_64</text></g><g><title>syscall_exit_to_user_mode (29,603 µs, 1.46%)</title><rect x="58.4154%" y="317" width="1.4576%" height="15" fill="rgb(236,167,34)" fg:x="11863" fg:w="296"/><text x="58.6654%" y="327.50"></text></g><g><title>switch_fpu_return (300 µs, 0.01%)</title><rect x="59.8582%" y="301" width="0.0148%" height="15" fill="rgb(236,115,34)" fg:x="12156" fg:w="3"/><text x="60.1082%" y="311.50"></text></g><g><title>srso_alias_safe_ret (600 µs, 0.03%)</title><rect x="59.8730%" y="333" width="0.0295%" height="15" fill="rgb(236,147,34)" fg:x="12159" fg:w="6"/><text x="60.1230%" y="343.50"></text></g><g><title>entry_SYSCALL_64_after_hwframe (584,358 µs, 28.77%)</title><rect x="31.1897%" y="349" width="28.7719%" height="15" fill="rgb(236,196,34)" fg:x="6334" fg:w="5843"/><text x="31.4397%" y="359.50">entry_SYSCALL_64_after_hwframe</text></g><g><title>syscall_exit_to_user_mode (1,200 µs, 0.06%)</title><rect x="59.9025%" y="333" width="0.0591%" height="15" fill="rgb(236,167,34)" fg:x="12165" fg:w="12"/><text x="60.1525%" y="343.50"></text></g><g><title>entry_SYSCALL_64_safe_stack (1,100 µs, 0.05%)</title><rect x="59.9616%" y="349" width="0.0542%" height="15" fill="rgb(236,196,34)" fg:x="12177" fg:w="11"/><text x="60.2116%" y="359.50"></text></g><g><title>entry_SYSRETQ_unsafe_stack (800 µs, 0.04%)</title><rect x="60.0158%" y="349" width="0.0394%" height="15" fill="rgb(236,196,34)" fg:x="12188" fg:w="8"/><text x="60.2658%" y="359.50"></text></g><g><title>srso_alias_safe_ret (1,700 µs, 0.08%)</title><rect x="60.0552%" y="349" width="0.0837%" height="15" fill="rgb(236,147,34)" fg:x="12196" fg:w="17"/><text x="60.3052%" y="359.50"></text></g><g><title>srso_alias_untrain_ret (2,200 µs, 0.11%)</title><rect x="60.1389%" y="349" width="0.1083%" height="15" fill="rgb(236,147,34)" fg:x="12213" fg:w="22"/><text x="60.3889%" y="359.50"></text></g><g><title>crossbeam_bench::increment (1,219,222 µs, 60.03%)</title><rect x="0.4481%" y="381" width="60.0305%" height="15" fill="rgb(241,128,39)" fg:x="91" fg:w="12191"/><text x="0.6981%" y="391.50">crossbeam_bench::increment</text></g><g><title>syscall (620,362 µs, 30.54%)</title><rect x="29.9340%" y="365" width="30.5446%" height="15" fill="rgb(230,167,28)" fg:x="6079" fg:w="6203"/><text x="30.1840%" y="375.50">syscall</text></g><g><title>syscall_return_via_sysret (4,600 µs, 0.23%)</title><rect x="60.2521%" y="349" width="0.2265%" height="15" fill="rgb(236,167,34)" fg:x="12236" fg:w="46"/><text x="60.5021%" y="359.50"></text></g><g><title>do_syscall_64 (2,000 µs, 0.10%)</title><rect x="61.1828%" y="365" width="0.0985%" height="15" fill="rgb(236,189,34)" fg:x="12425" fg:w="20"/><text x="61.4328%" y="375.50"></text></g><g><title>entry_SYSCALL_64 (20,802 µs, 1.02%)</title><rect x="61.2813%" y="365" width="1.0242%" height="15" fill="rgb(236,196,34)" fg:x="12445" fg:w="208"/><text x="61.5313%" y="375.50"></text></g><g><title>__x64_sys_futex (4,000 µs, 0.20%)</title><rect x="62.9210%" y="349" width="0.1970%" height="15" fill="rgb(236,154,34)" fg:x="12778" fg:w="40"/><text x="63.1710%" y="359.50"></text></g><g><title>_raw_spin_lock (20,602 µs, 1.01%)</title><rect x="64.6691%" y="301" width="1.0144%" height="15" fill="rgb(236,166,34)" fg:x="13133" fg:w="206"/><text x="64.9191%" y="311.50"></text></g><g><title>_raw_spin_unlock (600 µs, 0.03%)</title><rect x="65.6835%" y="301" width="0.0295%" height="15" fill="rgb(236,166,34)" fg:x="13339" fg:w="6"/><text x="65.9335%" y="311.50"></text></g><g><title>futex_hash (9,201 µs, 0.45%)</title><rect x="65.7130%" y="301" width="0.4530%" height="15" fill="rgb(236,152,34)" fg:x="13345" fg:w="92"/><text x="65.9630%" y="311.50"></text></g><g><title>_raw_spin_lock (302,830 µs, 14.91%)</title><rect x="69.4505%" y="285" width="14.9104%" height="15" fill="rgb(236,166,34)" fg:x="14104" fg:w="3028"/><text x="69.7005%" y="295.50">_raw_spin_lock</text></g><g><title>native_queued_spin_lock_slowpath (300,830 µs, 14.81%)</title><rect x="69.5489%" y="269" width="14.8119%" height="15" fill="rgb(236,158,34)" fg:x="14124" fg:w="3008"/><text x="69.7989%" y="279.50">native_queued_spin_lock..</text></g><g><title>asm_sysvec_apic_timer_interrupt (300 µs, 0.01%)</title><rect x="84.3461%" y="253" width="0.0148%" height="15" fill="rgb(236,145,34)" fg:x="17129" fg:w="3"/><text x="84.5961%" y="263.50"></text></g><g><title>sysvec_apic_timer_interrupt (300 µs, 0.01%)</title><rect x="84.3461%" y="237" width="0.0148%" height="15" fill="rgb(236,167,34)" fg:x="17129" fg:w="3"/><text x="84.5961%" y="247.50"></text></g><g><title>_raw_spin_unlock (300 µs, 0.01%)</title><rect x="84.3608%" y="285" width="0.0148%" height="15" fill="rgb(236,166,34)" fg:x="17132" fg:w="3"/><text x="84.6108%" y="295.50"></text></g><g><title>asm_sysvec_apic_timer_interrupt (300 µs, 0.01%)</title><rect x="84.3756%" y="285" width="0.0148%" height="15" fill="rgb(236,145,34)" fg:x="17135" fg:w="3"/><text x="84.6256%" y="295.50"></text></g><g><title>sysvec_apic_timer_interrupt (300 µs, 0.01%)</title><rect x="84.3756%" y="269" width="0.0148%" height="15" fill="rgb(236,167,34)" fg:x="17135" fg:w="3"/><text x="84.6256%" y="279.50"></text></g><g><title>__sysvec_apic_timer_interrupt (300 µs, 0.01%)</title><rect x="84.3756%" y="253" width="0.0148%" height="15" fill="rgb(236,132,34)" fg:x="17135" fg:w="3"/><text x="84.6256%" y="263.50"></text></g><g><title>hrtimer_interrupt (300 µs, 0.01%)</title><rect x="84.3756%" y="237" width="0.0148%" height="15" fill="rgb(236,152,34)" fg:x="17135" fg:w="3"/><text x="84.6256%" y="247.50"></text></g><g><title>__futex_unqueue (3,500 µs, 0.17%)</title><rect x="84.5430%" y="269" width="0.1723%" height="15" fill="rgb(236,135,34)" fg:x="17169" fg:w="35"/><text x="84.7930%" y="279.50"></text></g><g><title>futex_wake_mark (7,501 µs, 0.37%)</title><rect x="84.3904%" y="285" width="0.3693%" height="15" fill="rgb(236,152,34)" fg:x="17138" fg:w="75"/><text x="84.6404%" y="295.50"></text></g><g><title>plist_del (900 µs, 0.04%)</title><rect x="84.7154%" y="269" width="0.0443%" height="15" fill="rgb(236,139,34)" fg:x="17204" fg:w="9"/><text x="84.9654%" y="279.50"></text></g><g><title>get_futex_key (6,301 µs, 0.31%)</title><rect x="84.7597%" y="285" width="0.3102%" height="15" fill="rgb(236,170,34)" fg:x="17213" fg:w="63"/><text x="85.0097%" y="295.50"></text></g><g><title>native_queued_spin_lock_slowpath (400 µs, 0.02%)</title><rect x="85.0699%" y="285" width="0.0197%" height="15" fill="rgb(236,158,34)" fg:x="17276" fg:w="4"/><text x="85.3199%" y="295.50"></text></g><g><title>wake_q_add_safe (300 µs, 0.01%)</title><rect x="85.1044%" y="285" width="0.0148%" height="15" fill="rgb(236,77,34)" fg:x="17283" fg:w="3"/><text x="85.3544%" y="295.50"></text></g><g><title>_raw_spin_lock_irqsave (300 µs, 0.01%)</title><rect x="85.2176%" y="269" width="0.0148%" height="15" fill="rgb(236,166,34)" fg:x="17306" fg:w="3"/><text x="85.4676%" y="279.50"></text></g><g><title>select_task_rq_fair (700 µs, 0.03%)</title><rect x="85.2324%" y="269" width="0.0345%" height="15" fill="rgb(236,179,34)" fg:x="17309" fg:w="7"/><text x="85.4824%" y="279.50"></text></g><g><title>__task_rq_lock (27,603 µs, 1.36%)</title><rect x="94.3421%" y="253" width="1.3591%" height="15" fill="rgb(236,128,34)" fg:x="19159" fg:w="276"/><text x="94.5921%" y="263.50"></text></g><g><title>raw_spin_rq_lock_nested (27,203 µs, 1.34%)</title><rect x="94.3618%" y="237" width="1.3394%" height="15" fill="rgb(236,117,34)" fg:x="19163" fg:w="272"/><text x="94.6118%" y="247.50"></text></g><g><title>_raw_spin_lock (26,903 µs, 1.32%)</title><rect x="94.3766%" y="221" width="1.3246%" height="15" fill="rgb(236,166,34)" fg:x="19166" fg:w="269"/><text x="94.6266%" y="231.50"></text></g><g><title>native_queued_spin_lock_slowpath (26,903 µs, 1.32%)</title><rect x="94.3766%" y="205" width="1.3246%" height="15" fill="rgb(236,158,34)" fg:x="19166" fg:w="269"/><text x="94.6266%" y="215.50"></text></g><g><title>_raw_spin_lock_irqsave (1,700 µs, 0.08%)</title><rect x="95.7012%" y="253" width="0.0837%" height="15" fill="rgb(236,166,34)" fg:x="19435" fg:w="17"/><text x="95.9512%" y="263.50"></text></g><g><title>__raw_spin_lock_irqsave (1,700 µs, 0.08%)</title><rect x="95.7012%" y="237" width="0.0837%" height="15" fill="rgb(236,135,34)" fg:x="19435" fg:w="17"/><text x="95.9512%" y="247.50"></text></g><g><title>available_idle_cpu (900 µs, 0.04%)</title><rect x="96.0360%" y="237" width="0.0443%" height="15" fill="rgb(236,130,34)" fg:x="19503" fg:w="9"/><text x="96.2860%" y="247.50"></text></g><g><title>select_idle_sibling (500 µs, 0.02%)</title><rect x="96.0804%" y="237" width="0.0246%" height="15" fill="rgb(236,179,34)" fg:x="19512" fg:w="5"/><text x="96.3304%" y="247.50"></text></g><g><title>select_task_rq_fair (8,801 µs, 0.43%)</title><rect x="95.8046%" y="253" width="0.4333%" height="15" fill="rgb(236,179,34)" fg:x="19456" fg:w="88"/><text x="96.0546%" y="263.50"></text></g><g><title>wake_affine (2,700 µs, 0.13%)</title><rect x="96.1050%" y="237" width="0.1330%" height="15" fill="rgb(236,77,34)" fg:x="19517" fg:w="27"/><text x="96.3550%" y="247.50"></text></g><g><title>available_idle_cpu (2,600 µs, 0.13%)</title><rect x="96.1099%" y="221" width="0.1280%" height="15" fill="rgb(236,130,34)" fg:x="19518" fg:w="26"/><text x="96.3599%" y="231.50"></text></g><g><title>call_function_single_prep_ipi (1,400 µs, 0.07%)</title><rect x="96.4300%" y="221" width="0.0689%" height="15" fill="rgb(236,112,34)" fg:x="19583" fg:w="14"/><text x="96.6800%" y="231.50"></text></g><g><title>__smp_call_single_queue (1,800 µs, 0.09%)</title><rect x="96.4201%" y="237" width="0.0886%" height="15" fill="rgb(236,132,34)" fg:x="19581" fg:w="18"/><text x="96.6701%" y="247.50"></text></g><g><title>llist_add_batch (1,500 µs, 0.07%)</title><rect x="96.5088%" y="237" width="0.0739%" height="15" fill="rgb(236,91,34)" fg:x="19599" fg:w="15"/><text x="96.7588%" y="247.50"></text></g><g><title>sched_clock_cpu (1,800 µs, 0.09%)</title><rect x="96.5876%" y="237" width="0.0886%" height="15" fill="rgb(236,164,34)" fg:x="19615" fg:w="18"/><text x="96.8376%" y="247.50"></text></g><g><title>sched_clock (1,400 µs, 0.07%)</title><rect x="96.6072%" y="221" width="0.0689%" height="15" fill="rgb(236,164,34)" fg:x="19619" fg:w="14"/><text x="96.8572%" y="231.50"></text></g><g><title>sched_clock_noinstr (600 µs, 0.03%)</title><rect x="96.6466%" y="205" width="0.0295%" height="15" fill="rgb(236,164,34)" fg:x="19627" fg:w="6"/><text x="96.8966%" y="215.50"></text></g><g><title>native_sched_clock (600 µs, 0.03%)</title><rect x="96.6466%" y="189" width="0.0295%" height="15" fill="rgb(236,158,34)" fg:x="19627" fg:w="6"/><text x="96.8966%" y="199.50"></text></g><g><title>ttwu_queue_wakelist (8,901 µs, 0.44%)</title><rect x="96.2429%" y="253" width="0.4383%" height="15" fill="rgb(236,116,34)" fg:x="19545" fg:w="89"/><text x="96.4929%" y="263.50"></text></g><g><title>try_to_wake_up (231,823 µs, 11.41%)</title><rect x="85.2718%" y="269" width="11.4142%" height="15" fill="rgb(236,158,34)" fg:x="17317" fg:w="2318"/><text x="85.5218%" y="279.50">try_to_wake_up</text></g><g><title>futex_wake (620,062 µs, 30.53%)</title><rect x="66.1660%" y="301" width="30.5298%" height="15" fill="rgb(236,152,34)" fg:x="13437" fg:w="6200"/><text x="66.4160%" y="311.50">futex_wake</text></g><g><title>wake_up_q (235,124 µs, 11.58%)</title><rect x="85.1192%" y="285" width="11.5767%" height="15" fill="rgb(236,77,34)" fg:x="17286" fg:w="2351"/><text x="85.3692%" y="295.50">wake_up_q</text></g><g><title>futex_wake_mark (400 µs, 0.02%)</title><rect x="96.6959%" y="301" width="0.0197%" height="15" fill="rgb(236,152,34)" fg:x="19637" fg:w="4"/><text x="96.9459%" y="311.50"></text></g><g><title>get_futex_key (1,100 µs, 0.05%)</title><rect x="96.7156%" y="301" width="0.0542%" height="15" fill="rgb(236,170,34)" fg:x="19641" fg:w="11"/><text x="96.9656%" y="311.50"></text></g><g><title>srso_alias_safe_ret (1,000 µs, 0.05%)</title><rect x="96.7697%" y="301" width="0.0492%" height="15" fill="rgb(236,147,34)" fg:x="19652" fg:w="10"/><text x="97.0197%" y="311.50"></text></g><g><title>do_futex (656,166 µs, 32.31%)</title><rect x="64.5608%" y="317" width="32.3075%" height="15" fill="rgb(236,189,34)" fg:x="13111" fg:w="6561"/><text x="64.8108%" y="327.50">do_futex</text></g><g><title>wake_up_q (1,000 µs, 0.05%)</title><rect x="96.8190%" y="301" width="0.0492%" height="15" fill="rgb(236,77,34)" fg:x="19662" fg:w="10"/><text x="97.0690%" y="311.50"></text></g><g><title>__x64_sys_futex (667,267 µs, 32.85%)</title><rect x="64.0487%" y="333" width="32.8540%" height="15" fill="rgb(236,154,34)" fg:x="13007" fg:w="6672"/><text x="64.2987%" y="343.50">__x64_sys_futex</text></g><g><title>srso_alias_safe_ret (500 µs, 0.02%)</title><rect x="96.8781%" y="317" width="0.0246%" height="15" fill="rgb(236,147,34)" fg:x="19674" fg:w="5"/><text x="97.1281%" y="327.50"></text></g><g><title>amd_clear_divider (300 µs, 0.01%)</title><rect x="96.9027%" y="333" width="0.0148%" height="15" fill="rgb(236,110,34)" fg:x="19679" fg:w="3"/><text x="97.1527%" y="343.50"></text></g><g><title>do_futex (7,701 µs, 0.38%)</title><rect x="96.9224%" y="333" width="0.3792%" height="15" fill="rgb(236,189,34)" fg:x="19683" fg:w="77"/><text x="97.1724%" y="343.50"></text></g><g><title>fpregs_assert_state_consistent (300 µs, 0.01%)</title><rect x="97.3016%" y="333" width="0.0148%" height="15" fill="rgb(236,184,34)" fg:x="19760" fg:w="3"/><text x="97.5516%" y="343.50"></text></g><g><title>srso_alias_safe_ret (1,900 µs, 0.09%)</title><rect x="97.3163%" y="333" width="0.0936%" height="15" fill="rgb(236,147,34)" fg:x="19763" fg:w="19"/><text x="97.5663%" y="343.50"></text></g><g><title>fpregs_assert_state_consistent (600 µs, 0.03%)</title><rect x="98.7443%" y="317" width="0.0295%" height="15" fill="rgb(236,184,34)" fg:x="20053" fg:w="6"/><text x="98.9943%" y="327.50"></text></g><g><title>ctx_sched_in (500 µs, 0.02%)</title><rect x="98.7739%" y="253" width="0.0246%" height="15" fill="rgb(236,127,34)" fg:x="20059" fg:w="5"/><text x="99.0239%" y="263.50"></text></g><g><title>ctx_groups_sched_in (500 µs, 0.02%)</title><rect x="98.7739%" y="237" width="0.0246%" height="15" fill="rgb(236,127,34)" fg:x="20059" fg:w="5"/><text x="99.0239%" y="247.50"></text></g><g><title>visit_groups_merge.constprop.0.isra.0 (500 µs, 0.02%)</title><rect x="98.7739%" y="221" width="0.0246%" height="15" fill="rgb(236,113,34)" fg:x="20059" fg:w="5"/><text x="99.0239%" y="231.50"></text></g><g><title>rb_next (500 µs, 0.02%)</title><rect x="98.7739%" y="205" width="0.0246%" height="15" fill="rgb(236,112,34)" fg:x="20059" fg:w="5"/><text x="99.0239%" y="215.50"></text></g><g><title>schedule (600 µs, 0.03%)</title><rect x="98.7739%" y="317" width="0.0295%" height="15" fill="rgb(236,164,34)" fg:x="20059" fg:w="6"/><text x="99.0239%" y="327.50"></text></g><g><title>__schedule (600 µs, 0.03%)</title><rect x="98.7739%" y="301" width="0.0295%" height="15" fill="rgb(236,132,34)" fg:x="20059" fg:w="6"/><text x="99.0239%" y="311.50"></text></g><g><title>finish_task_switch.isra.0 (600 µs, 0.03%)</title><rect x="98.7739%" y="285" width="0.0295%" height="15" fill="rgb(236,177,34)" fg:x="20059" fg:w="6"/><text x="99.0239%" y="295.50"></text></g><g><title>__perf_event_task_sched_in (600 µs, 0.03%)</title><rect x="98.7739%" y="269" width="0.0295%" height="15" fill="rgb(236,141,34)" fg:x="20059" fg:w="6"/><text x="99.0239%" y="279.50"></text></g><g><title>do_syscall_64 (724,672 µs, 35.68%)</title><rect x="63.1278%" y="349" width="35.6805%" height="15" fill="rgb(236,189,34)" fg:x="12820" fg:w="7246"/><text x="63.3778%" y="359.50">do_syscall_64</text></g><g><title>syscall_exit_to_user_mode (28,403 µs, 1.40%)</title><rect x="97.4099%" y="333" width="1.3985%" height="15" fill="rgb(236,167,34)" fg:x="19782" fg:w="284"/><text x="97.6599%" y="343.50"></text></g><g><title>srso_alias_safe_ret (1,300 µs, 0.06%)</title><rect x="98.8084%" y="349" width="0.0640%" height="15" fill="rgb(236,147,34)" fg:x="20066" fg:w="13"/><text x="99.0584%" y="359.50"></text></g><g><title>entry_SYSCALL_64_after_hwframe (744,774 µs, 36.67%)</title><rect x="62.3055%" y="365" width="36.6703%" height="15" fill="rgb(236,196,34)" fg:x="12653" fg:w="7447"/><text x="62.5555%" y="375.50">entry_SYSCALL_64_after_hwframe</text></g><g><title>syscall_exit_to_user_mode (2,100 µs, 0.10%)</title><rect x="98.8724%" y="349" width="0.1034%" height="15" fill="rgb(236,167,34)" fg:x="20079" fg:w="21"/><text x="99.1224%" y="359.50"></text></g><g><title>entry_SYSCALL_64_safe_stack (1,700 µs, 0.08%)</title><rect x="98.9758%" y="365" width="0.0837%" height="15" fill="rgb(236,196,34)" fg:x="20100" fg:w="17"/><text x="99.2258%" y="375.50"></text></g><g><title>entry_SYSRETQ_unsafe_stack (900 µs, 0.04%)</title><rect x="99.0595%" y="365" width="0.0443%" height="15" fill="rgb(236,196,34)" fg:x="20117" fg:w="9"/><text x="99.3095%" y="375.50"></text></g><g><title>srso_alias_safe_ret (2,400 µs, 0.12%)</title><rect x="99.1038%" y="365" width="0.1182%" height="15" fill="rgb(236,147,34)" fg:x="20126" fg:w="24"/><text x="99.3538%" y="375.50"></text></g><g><title>srso_alias_untrain_ret (3,800 µs, 0.19%)</title><rect x="99.2220%" y="365" width="0.1871%" height="15" fill="rgb(236,147,34)" fg:x="20150" fg:w="38"/><text x="99.4720%" y="375.50"></text></g><g><title>&lt;std::thread::lifecycle::spawn_unchecked&lt;alloc::boxed::Box&lt;dyn core::ops::function::FnOnce&lt;(), Output = ()&gt; + core::marker::Send&gt;, ()&gt;::{closure#1} as core::ops::function::FnOnce&lt;()&gt;&gt;::call_once::{shim:vtable#0} (2,020,602 µs, 99.49%)</title><rect x="0.3595%" y="429" width="99.4879%" height="15" fill="rgb(234,179,32)" fg:x="73" fg:w="20204"/><text x="0.6095%" y="439.50">&lt;std::thread::lifecycle::spawn_unchecked&lt;alloc::boxed::Box&lt;dyn core::ops::function::FnOnce&lt;(), Output = ()&gt; + core::marker::Send&gt;, ()&gt;::{closure#1} as core::ops::func..</text></g><g><title>std::sys::backtrace::__rust_begin_short_backtrace::&lt;alloc::boxed::Box&lt;dyn core::ops::function::FnOnce&lt;(), Output = ()&gt; + core::marker::Send&gt;, ()&gt; (2,020,602 µs, 99.49%)</title><rect x="0.3595%" y="413" width="99.4879%" height="15" fill="rgb(239,146,38)" fg:x="73" fg:w="20204"/><text x="0.6095%" y="423.50">std::sys::backtrace::__rust_begin_short_backtrace::&lt;alloc::boxed::Box&lt;dyn core::ops::function::FnOnce&lt;(), Output = ()&gt; + core::marker::Send&gt;, ()&gt;</text></g><g><title>&lt;&lt;crossbeam_utils::thread::ScopedThreadBuilder&gt;::spawn&lt;crossbeam_bench::{thread}, ()&gt;::{closure#0} as core::ops::function::FnOnce&lt;()&gt;&gt;::call_once::{shim:vtable#0} (2,020,602 µs, 99.49%)</title><rect x="0.3595%" y="397" width="99.4879%" height="15" fill="rgb(234,195,32)" fg:x="73" fg:w="20204"/><text x="0.6095%" y="407.50">&lt;&lt;crossbeam_utils::thread::ScopedThreadBuilder&gt;::spawn&lt;crossbeam_bench::{thread}, ()&gt;::{closure#0} as core::ops::function::FnOnce&lt;()&gt;&gt;::call_once::{shim:vtable#0}</text></g><g><title>syscall (799,580 µs, 39.37%)</title><rect x="60.4786%" y="381" width="39.3687%" height="15" fill="rgb(230,167,28)" fg:x="12282" fg:w="7995"/><text x="60.7286%" y="391.50">syscall</text></g><g><title>syscall_return_via_sysret (8,901 µs, 0.44%)</title><rect x="99.4091%" y="365" width="0.4383%" height="15" fill="rgb(236,167,34)" fg:x="20188" fg:w="89"/><text x="99.6591%" y="375.50"></text></g><g><title>__munmap (500 µs, 0.02%)</title><rect x="99.8621%" y="381" width="0.0246%" height="15" fill="rgb(240,151,39)" fg:x="20280" fg:w="5"/><text x="100.1121%" y="391.50"></text></g><g><title>entry_SYSCALL_64_after_hwframe (500 µs, 0.02%)</title><rect x="99.8621%" y="365" width="0.0246%" height="15" fill="rgb(236,196,34)" fg:x="20280" fg:w="5"/><text x="100.1121%" y="375.50"></text></g><g><title>do_syscall_64 (500 µs, 0.02%)</title><rect x="99.8621%" y="349" width="0.0246%" height="15" fill="rgb(236,189,34)" fg:x="20280" fg:w="5"/><text x="100.1121%" y="359.50"></text></g><g><title>__x64_sys_munmap (500 µs, 0.02%)</title><rect x="99.8621%" y="333" width="0.0246%" height="15" fill="rgb(236,154,34)" fg:x="20280" fg:w="5"/><text x="100.1121%" y="343.50"></text></g><g><title>__vm_munmap (500 µs, 0.02%)</title><rect x="99.8621%" y="317" width="0.0246%" height="15" fill="rgb(236,122,34)" fg:x="20280" fg:w="5"/><text x="100.1121%" y="327.50"></text></g><g><title>do_vmi_munmap (500 µs, 0.02%)</title><rect x="99.8621%" y="301" width="0.0246%" height="15" fill="rgb(236,189,34)" fg:x="20280" fg:w="5"/><text x="100.1121%" y="311.50"></text></g><g><title>do_vmi_align_munmap (500 µs, 0.02%)</title><rect x="99.8621%" y="285" width="0.0246%" height="15" fill="rgb(236,189,34)" fg:x="20280" fg:w="5"/><text x="100.1121%" y="295.50"></text></g><g><title>cfree@GLIBC_2.2.5 (900 µs, 0.04%)</title><rect x="99.8621%" y="429" width="0.0443%" height="15" fill="rgb(246,123,45)" fg:x="20280" fg:w="9"/><text x="100.1121%" y="439.50"></text></g><g><title>tcache_init.part.0 (900 µs, 0.04%)</title><rect x="99.8621%" y="413" width="0.0443%" height="15" fill="rgb(233,178,31)" fg:x="20280" fg:w="9"/><text x="100.1121%" y="423.50"></text></g><g><title>arena_get2.part.0 (900 µs, 0.04%)</title><rect x="99.8621%" y="397" width="0.0443%" height="15" fill="rgb(233,137,31)" fg:x="20280" fg:w="9"/><text x="100.1121%" y="407.50"></text></g><g><title>alloc_new_heap (400 µs, 0.02%)</title><rect x="99.8867%" y="381" width="0.0197%" height="15" fill="rgb(238,128,36)" fg:x="20285" fg:w="4"/><text x="100.1367%" y="391.50"></text></g><g><title>clone3 (2,022,902 µs, 99.60%)</title><rect x="0.3102%" y="477" width="99.6011%" height="15" fill="rgb(249,102,49)" fg:x="63" fg:w="20227"/><text x="0.5602%" y="487.50">clone3</text></g><g><title>start_thread (2,021,902 µs, 99.55%)</title><rect x="0.3595%" y="461" width="99.5519%" height="15" fill="rgb(241,156,40)" fg:x="73" fg:w="20217"/><text x="0.6095%" y="471.50">start_thread</text></g><g><title>&lt;std::sys::thread::unix::Thread&gt;::new::thread_start (2,021,902 µs, 99.55%)</title><rect x="0.3595%" y="445" width="99.5519%" height="15" fill="rgb(239,179,37)" fg:x="73" fg:w="20217"/><text x="0.6095%" y="455.50">&lt;std::sys::thread::unix::Thread&gt;::new::thread_start</text></g><g><title>crossbeam-bench (2,029,403 µs, 99.92%)</title><rect x="0.0000%" y="493" width="99.9212%" height="15" fill="rgb(246,128,45)" fg:x="0" fg:w="20292"/><text x="0.2500%" y="503.50">crossbeam-bench</text></g><g><title>perf-exec (700 µs, 0.03%)</title><rect x="99.9212%" y="493" width="0.0345%" height="15" fill="rgb(237,184,35)" fg:x="20292" fg:w="7"/><text x="100.1712%" y="503.50"></text></g><g><title>[unknown] (700 µs, 0.03%)</title><rect x="99.9212%" y="477" width="0.0345%" height="15" fill="rgb(242,180,40)" fg:x="20292" fg:w="7"/><text x="100.1712%" y="487.50"></text></g><g><title>entry_SYSCALL_64_after_hwframe (700 µs, 0.03%)</title><rect x="99.9212%" y="461" width="0.0345%" height="15" fill="rgb(236,196,34)" fg:x="20292" fg:w="7"/><text x="100.1712%" y="471.50"></text></g><g><title>do_syscall_64 (700 µs, 0.03%)</title><rect x="99.9212%" y="445" width="0.0345%" height="15" fill="rgb(236,189,34)" fg:x="20292" fg:w="7"/><text x="100.1712%" y="455.50"></text></g><g><title>__x64_sys_execve (700 µs, 0.03%)</title><rect x="99.9212%" y="429" width="0.0345%" height="15" fill="rgb(236,154,34)" fg:x="20292" fg:w="7"/><text x="100.1712%" y="439.50"></text></g><g><title>do_execveat_common.isra.0 (700 µs, 0.03%)</title><rect x="99.9212%" y="413" width="0.0345%" height="15" fill="rgb(236,189,34)" fg:x="20292" fg:w="7"/><text x="100.1712%" y="423.50"></text></g><g><title>bprm_execve (700 µs, 0.03%)</title><rect x="99.9212%" y="397" width="0.0345%" height="15" fill="rgb(236,136,34)" fg:x="20292" fg:w="7"/><text x="100.1712%" y="407.50"></text></g><g><title>bprm_execve.part.0 (700 µs, 0.03%)</title><rect x="99.9212%" y="381" width="0.0345%" height="15" fill="rgb(236,136,34)" fg:x="20292" fg:w="7"/><text x="100.1712%" y="391.50"></text></g><g><title>exec_binprm (700 µs, 0.03%)</title><rect x="99.9212%" y="365" width="0.0345%" height="15" fill="rgb(236,155,34)" fg:x="20292" fg:w="7"/><text x="100.1712%" y="375.50"></text></g><g><title>search_binary_handler (700 µs, 0.03%)</title><rect x="99.9212%" y="349" width="0.0345%" height="15" fill="rgb(236,176,34)" fg:x="20292" fg:w="7"/><text x="100.1712%" y="359.50"></text></g><g><title>load_elf_binary (700 µs, 0.03%)</title><rect x="99.9212%" y="333" width="0.0345%" height="15" fill="rgb(236,157,34)" fg:x="20292" fg:w="7"/><text x="100.1712%" y="343.50"></text></g><g><title>begin_new_exec (700 µs, 0.03%)</title><rect x="99.9212%" y="317" width="0.0345%" height="15" fill="rgb(236,133,34)" fg:x="20292" fg:w="7"/><text x="100.1712%" y="327.50"></text></g><g><title>perf_event_exec (700 µs, 0.03%)</title><rect x="99.9212%" y="301" width="0.0345%" height="15" fill="rgb(236,184,34)" fg:x="20292" fg:w="7"/><text x="100.1712%" y="311.50"></text></g><g><title>perf_event_enable_on_exec (600 µs, 0.03%)</title><rect x="99.9261%" y="285" width="0.0295%" height="15" fill="rgb(236,184,34)" fg:x="20293" fg:w="6"/><text x="100.1761%" y="295.50"></text></g><g><title>ctx_resched (600 µs, 0.03%)</title><rect x="99.9261%" y="269" width="0.0295%" height="15" fill="rgb(236,127,34)" fg:x="20293" fg:w="6"/><text x="100.1761%" y="279.50"></text></g><g><title>ctx_sched_in (600 µs, 0.03%)</title><rect x="99.9261%" y="253" width="0.0295%" height="15" fill="rgb(236,127,34)" fg:x="20293" fg:w="6"/><text x="100.1761%" y="263.50"></text></g><g><title>ctx_groups_sched_in (600 µs, 0.03%)</title><rect x="99.9261%" y="237" width="0.0295%" height="15" fill="rgb(236,127,34)" fg:x="20293" fg:w="6"/><text x="100.1761%" y="247.50"></text></g><g><title>visit_groups_merge.constprop.0.isra.0 (600 µs, 0.03%)</title><rect x="99.9261%" y="221" width="0.0295%" height="15" fill="rgb(236,113,34)" fg:x="20293" fg:w="6"/><text x="100.1761%" y="231.50"></text></g><g><title>merge_sched_in (600 µs, 0.03%)</title><rect x="99.9261%" y="205" width="0.0295%" height="15" fill="rgb(236,128,34)" fg:x="20293" fg:w="6"/><text x="100.1761%" y="215.50"></text></g><g><title>event_sched_in (600 µs, 0.03%)</title><rect x="99.9261%" y="189" width="0.0295%" height="15" fill="rgb(236,165,34)" fg:x="20293" fg:w="6"/><text x="100.1761%" y="199.50"></text></g><g><title>perf_ibs_add (600 µs, 0.03%)</title><rect x="99.9261%" y="173" width="0.0295%" height="15" fill="rgb(236,184,34)" fg:x="20293" fg:w="6"/><text x="100.1761%" y="183.50"></text></g><g><title>perf_ibs_start (600 µs, 0.03%)</title><rect x="99.9261%" y="157" width="0.0295%" height="15" fill="rgb(236,184,34)" fg:x="20293" fg:w="6"/><text x="100.1761%" y="167.50"></text></g><g><title>perf_event_update_userpage (500 µs, 0.02%)</title><rect x="99.9311%" y="141" width="0.0246%" height="15" fill="rgb(236,184,34)" fg:x="20294" fg:w="5"/><text x="100.1811%" y="151.50"></text></g><g><title>[unknown] (300 µs, 0.01%)</title><rect x="99.9655%" y="477" width="0.0148%" height="15" fill="rgb(242,180,40)" fg:x="20301" fg:w="3"/><text x="100.2155%" y="487.50"></text></g><g><title>entry_SYSCALL_64_after_hwframe (300 µs, 0.01%)</title><rect x="99.9655%" y="461" width="0.0148%" height="15" fill="rgb(236,196,34)" fg:x="20301" fg:w="3"/><text x="100.2155%" y="471.50"></text></g><g><title>do_syscall_64 (300 µs, 0.01%)</title><rect x="99.9655%" y="445" width="0.0148%" height="15" fill="rgb(236,189,34)" fg:x="20301" fg:w="3"/><text x="100.2155%" y="455.50"></text></g><g><title>__x64_sys_execve (300 µs, 0.01%)</title><rect x="99.9655%" y="429" width="0.0148%" height="15" fill="rgb(236,154,34)" fg:x="20301" fg:w="3"/><text x="100.2155%" y="439.50"></text></g><g><title>do_execveat_common.isra.0 (300 µs, 0.01%)</title><rect x="99.9655%" y="413" width="0.0148%" height="15" fill="rgb(236,189,34)" fg:x="20301" fg:w="3"/><text x="100.2155%" y="423.50"></text></g><g><title>bprm_execve (300 µs, 0.01%)</title><rect x="99.9655%" y="397" width="0.0148%" height="15" fill="rgb(236,136,34)" fg:x="20301" fg:w="3"/><text x="100.2155%" y="407.50"></text></g><g><title>bprm_execve.part.0 (300 µs, 0.01%)</title><rect x="99.9655%" y="381" width="0.0148%" height="15" fill="rgb(236,136,34)" fg:x="20301" fg:w="3"/><text x="100.2155%" y="391.50"></text></g><g><title>exec_binprm (300 µs, 0.01%)</title><rect x="99.9655%" y="365" width="0.0148%" height="15" fill="rgb(236,155,34)" fg:x="20301" fg:w="3"/><text x="100.2155%" y="375.50"></text></g><g><title>search_binary_handler (300 µs, 0.01%)</title><rect x="99.9655%" y="349" width="0.0148%" height="15" fill="rgb(236,176,34)" fg:x="20301" fg:w="3"/><text x="100.2155%" y="359.50"></text></g><g><title>load_elf_binary (300 µs, 0.01%)</title><rect x="99.9655%" y="333" width="0.0148%" height="15" fill="rgb(236,157,34)" fg:x="20301" fg:w="3"/><text x="100.2155%" y="343.50"></text></g><g><title>all (2,031,003 µs, 100%)</title><rect x="0.0000%" y="509" width="100.0000%" height="15" fill="rgb(255,230,55)" fg:x="0" fg:w="20308"/><text x="0.2500%" y="519.50"></text></g><g><title>taskset (900 µs, 0.04%)</title><rect x="99.9557%" y="493" width="0.0443%" height="15" fill="rgb(237,114,35)" fg:x="20299" fg:w="9"/><text x="100.2057%" y="503.50"></text></g></svg></svg>
