@@ -32,6 +32,18 @@ import run
 FREQ = 9999  # samples/s per CPU, so even the shortest tests get 1,500+ samples; odd, so it misses timer ticks
 DEFAULT_IMPLS = ["tokio", "tokio-tuned-tokio-channels", "tokio-tuned", "crossbeam", "go"]
 SKIP = {"idle"}  # idle tasks only sleep; there's nothing to profile
+
+# Frame name clean-up between rustfilt and inferno, applied in order:
+# - Crossbeam's scoped-thread closures and Go's `gowrapN` only start a thread or goroutine running a named function:
+#   drop those frames.
+# - Rust names an `async fn f`'s body `f::{closure#0}`: show it as `f`.
+# - Library frames that take a Crossbeam thread closure as a type parameter name it `crossbeam_bench::{thread}`;
+#   LTO merges identical closures, so their real names can point at the wrong test.
+RENAME_FRAMES = [
+    "/^\\s+[0-9a-f]+ (crossbeam_bench::[A-Za-z0-9_]+(::\\{closure#[0-9]+\\})+|main\\.[A-Za-z0-9_]+\\.gowrap[0-9]+) \\(/d",
+    "s/((tokio_bench|tokio_tuned_bench|tokio_tuned_tokio_channels_bench)::[A-Za-z_][A-Za-z0-9_]*)::\\{closure#0\\}/\\1/g",
+    "s/crossbeam_bench::[A-Za-z0-9_]+(::\\{closure#[0-9]+\\})+/crossbeam_bench::{thread}/g",
+]
 RUST_RELEASE = run.ROOT / "rust/target/release"
 FP_TARGET = run.ROOT / "rust/target/frame-pointers"
 
@@ -147,24 +159,33 @@ def profile_one(perf, impl, workload, threads, cpus, svg: Path, user_only: bool)
             samples = int(m[1]) if (m := re.search(r"\((\d+) samples\)", proc.stderr)) else 0
             label = report.ROW_LABELS[workload].format(size=report.fmt_count(size), **run.WORKLOAD_PARAMS[workload])
             render(perf, data, svg, f"{report.display_name(impl)}: {label}",
-                   f"{threads} threads, size {report.fmt_count(size)}, {samples:,} samples")
+                   f"{threads} threads, size {report.fmt_count(size)}, {samples:,} samples ≈ {samples / FREQ:.2f} CPU-seconds")
             return f"{samples:,} samples"
     return "skipped"
 
 
 def render(perf, data: Path, svg: Path, title: str, subtitle: str) -> None:
-    """perf script | rustfilt | inferno-collapse-perf | inferno-flamegraph. Frame widths are CPU cycles."""
-    script = subprocess.Popen([perf, "script", "-i", str(data)], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    """perf script | rustfilt | sed RENAME_FRAMES | inferno-collapse-perf | inferno-flamegraph.
+
+    perf script prints no period, so each sample counts once, and each sample is 1/FREQ s of one thread's CPU time:
+    frames show CPU microseconds.
+    """
+    fields = "comm,pid,tid,time,event,ip,sym,dso"
+    script = subprocess.Popen([perf, "script", "-i", str(data), "-F", fields], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     demangle = subprocess.Popen(["rustfilt"], stdin=script.stdout, stdout=subprocess.PIPE)
     script.stdout.close()
-    collapse = subprocess.Popen(["inferno-collapse-perf", "--kernel"], stdin=demangle.stdout, stdout=subprocess.PIPE)
+    rename = subprocess.Popen(["sed", "-E", *(a for e in RENAME_FRAMES for a in ("-e", e))], stdin=demangle.stdout,
+                              stdout=subprocess.PIPE)
     demangle.stdout.close()
+    collapse = subprocess.Popen(["inferno-collapse-perf", "--kernel"], stdin=rename.stdout, stdout=subprocess.PIPE)
+    rename.stdout.close()
     with open(svg, "w") as f:
-        subprocess.run(["inferno-flamegraph", "--hash", "--countname", "cycles", "--title", title, "--subtitle", subtitle],
+        subprocess.run(["inferno-flamegraph", "--hash", "--countname", "µs", "--factor", str(1e6 / FREQ),
+                        "--title", title, "--subtitle", subtitle],
                        stdin=collapse.stdout, stdout=f, check=True)
     collapse.stdout.close()
-    if script.wait() or demangle.wait() or collapse.wait():
-        raise RuntimeError(f"perf script, rustfilt or inferno-collapse-perf failed for {data}")
+    if script.wait() or demangle.wait() or rename.wait() or collapse.wait():
+        raise RuntimeError(f"perf script, rustfilt, sed or inferno-collapse-perf failed for {data}")
 
 
 def median_at_largest_size(summary: list[dict], impl: str, workload: str, threads: int) -> tuple[float, int] | None:
@@ -181,8 +202,10 @@ def render_index(meta, workloads, impls, threads_list, graphs, results: Path | N
         "# Flame graphs",
         "",
         f"One `perf record` at {FREQ} Hz per test, `full` sizes, recorded {meta['started_at'][:10]} at commit {commit}. "
-        "Whole process, startup and untimed passes included. Frame width is CPU cycles; kernel frames end in `_[k]`. "
-        "Rust is built with frame pointers for complete stacks.",
+        f"Whole process, startup and untimed passes included. Hover shows each frame's CPU time (samples ÷ {FREQ:,} Hz); "
+        "kernel frames end in `_[k]`. Rust is built with frame pointers for complete stacks. "
+        "Rust `async fn` bodies (`f::{closure#0}`) are shown as `f`; the closures and Go `gowrap` wrappers that only "
+        "start a thread or goroutine are hidden.",
     ]
     summary = None
     if results:

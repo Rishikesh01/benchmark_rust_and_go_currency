@@ -6,6 +6,7 @@
 //! Tokio has no MPMC channel, and the other workloads would be identical to `tokio-tuned-bench`.
 
 use common::{fail, Args, Report};
+use std::ops::Range;
 use std::time::Instant;
 use tokio::sync::mpsc;
 
@@ -52,15 +53,18 @@ async fn drain_sum(mut rx: mpsc::Receiver<u64>) -> u64 {
     sum
 }
 
+/// Sends every value in `values`.
+async fn produce(tx: mpsc::Sender<u64>, values: Range<u64>) {
+    for i in values {
+        tx.send(i).await.unwrap();
+    }
+}
+
 async fn spsc(a: Args) -> Report {
     let n = a.size;
     let (tx, rx) = mpsc::channel::<u64>(a.capacity);
     let start = Instant::now();
-    let producer = tokio::spawn(async move {
-        for i in 0..n {
-            tx.send(i).await.unwrap();
-        }
-    });
+    let producer = tokio::spawn(produce(tx, 0..n));
     let consumer = tokio::spawn(drain_sum(rx));
     producer.await.unwrap();
     let sum = consumer.await.unwrap();
@@ -76,13 +80,7 @@ async fn many_to_one(a: Args) -> Report {
     let start = Instant::now();
     let consumer = tokio::spawn(drain_sum(rx));
     for p in 0..a.producers as u64 {
-        let tx = tx.clone();
-        producers.push(tokio::spawn(async move {
-            let base = p * per;
-            for i in 0..per {
-                tx.send(base + i).await.unwrap();
-            }
-        }));
+        producers.push(tokio::spawn(produce(tx.clone(), p * per..(p + 1) * per)));
     }
     drop(tx);
     for p in producers {
@@ -95,30 +93,36 @@ async fn many_to_one(a: Args) -> Report {
 async fn pingpong(a: Args) -> Report {
     let n = a.size;
     let every = a.sample_every;
-    let (to_b, mut b_rx) = mpsc::channel::<u64>(1);
-    let (to_a, mut a_rx) = mpsc::channel::<u64>(1);
-    let mut samples = Vec::with_capacity((n / every + 1) as usize);
+    let (to_b, b_rx) = mpsc::channel::<u64>(1);
+    let (to_a, a_rx) = mpsc::channel::<u64>(1);
+    let samples = Vec::with_capacity((n / every + 1) as usize);
     let start = Instant::now();
-    let b = tokio::spawn(async move {
-        while let Some(v) = b_rx.recv().await {
-            if to_a.send(v + 1).await.is_err() {
-                break;
-            }
-        }
-    });
-    let a_side = tokio::spawn(async move {
-        let mut token = 0u64;
-        for i in 0..n {
-            let t0 = (i % every == 0).then(Instant::now);
-            to_b.send(token + 1).await.unwrap();
-            token = a_rx.recv().await.unwrap();
-            if let Some(t0) = t0 {
-                samples.push(t0.elapsed().as_nanos() as u64);
-            }
-        }
-        (token, samples)
-    });
+    let b = tokio::spawn(pong(b_rx, to_a));
+    let a_side = tokio::spawn(ping(to_b, a_rx, n, every, samples));
     let (token, mut samples) = a_side.await.unwrap();
     b.await.unwrap();
     Report::ok(IMPL, &a, n, start.elapsed(), token).with_latencies(&mut samples)
+}
+
+/// Sends the token `n` times, waiting for each reply; times every `every`-th round trip.
+async fn ping(to_b: mpsc::Sender<u64>, mut a_rx: mpsc::Receiver<u64>, n: u64, every: u64, mut samples: Vec<u64>) -> (u64, Vec<u64>) {
+    let mut token = 0u64;
+    for i in 0..n {
+        let t0 = (i % every == 0).then(Instant::now);
+        to_b.send(token + 1).await.unwrap();
+        token = a_rx.recv().await.unwrap();
+        if let Some(t0) = t0 {
+            samples.push(t0.elapsed().as_nanos() as u64);
+        }
+    }
+    (token, samples)
+}
+
+/// Replies to every token with token + 1 until `ping` hangs up.
+async fn pong(mut b_rx: mpsc::Receiver<u64>, to_a: mpsc::Sender<u64>) {
+    while let Some(v) = b_rx.recv().await {
+        if to_a.send(v + 1).await.is_err() {
+            break;
+        }
+    }
 }

@@ -1,4 +1,7 @@
 // Go implementations of every workload, using goroutines and channels.
+//
+// Every goroutine runs a named function, so flame graphs show main.produce,
+// main.consume and so on instead of anonymous main.spsc.func1-style closures.
 package main
 
 import (
@@ -45,21 +48,31 @@ func spsc(a Args) *Report {
 	var wg sync.WaitGroup
 	start := time.Now()
 	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		for i := uint64(0); i < n; i++ {
-			ch <- i
-		}
-		close(ch)
-	}()
-	go func() {
-		defer wg.Done()
-		for v := range ch {
-			sum += v
-		}
-	}()
+	go produce(ch, 0, n, true, &wg)
+	go consume(ch, &sum, &wg)
 	wg.Wait()
 	return okReport(a, n, time.Since(start), sum)
+}
+
+// Sends lo..hi-1, then closes the channel if it is the only sender.
+func produce(ch chan<- uint64, lo, hi uint64, closeWhenDone bool, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for i := lo; i < hi; i++ {
+		ch <- i
+	}
+	if closeWhenDone {
+		close(ch)
+	}
+}
+
+// Sums everything received until the channel is closed.
+func consume(ch <-chan uint64, sum *uint64, wg *sync.WaitGroup) {
+	defer wg.Done()
+	var s uint64
+	for v := range ch {
+		s += v
+	}
+	*sum = s
 }
 
 // Several senders, one receiver.
@@ -71,21 +84,10 @@ func manyToOne(a Args) *Report {
 	var producers, consumer sync.WaitGroup
 	start := time.Now()
 	consumer.Add(1)
-	go func() {
-		defer consumer.Done()
-		for v := range ch {
-			sum += v
-		}
-	}()
+	go consume(ch, &sum, &consumer)
 	producers.Add(a.Producers)
-	for p := 0; p < a.Producers; p++ {
-		go func(p uint64) {
-			defer producers.Done()
-			base := p * per
-			for i := uint64(0); i < per; i++ {
-				ch <- base + i
-			}
-		}(uint64(p))
+	for p := uint64(0); p < uint64(a.Producers); p++ {
+		go produce(ch, p*per, (p+1)*per, false, &producers)
 	}
 	producers.Wait()
 	close(ch)
@@ -102,24 +104,11 @@ func mpmc(a Args) *Report {
 	start := time.Now()
 	consumers.Add(a.Consumers)
 	for c := 0; c < a.Consumers; c++ {
-		go func(c int) {
-			defer consumers.Done()
-			var s uint64
-			for v := range ch {
-				s += v
-			}
-			sums[c] = s
-		}(c)
+		go consume(ch, &sums[c], &consumers)
 	}
 	producers.Add(a.Producers)
-	for p := 0; p < a.Producers; p++ {
-		go func(p uint64) {
-			defer producers.Done()
-			base := p * per
-			for i := uint64(0); i < per; i++ {
-				ch <- base + i
-			}
-		}(uint64(p))
+	for p := uint64(0); p < uint64(a.Producers); p++ {
+		go produce(ch, p*per, (p+1)*per, false, &producers)
 	}
 	producers.Wait()
 	close(ch)
@@ -141,30 +130,39 @@ func pingpong(a Args) *Report {
 	var wg sync.WaitGroup
 	start := time.Now()
 	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		for v := range toB {
-			toA <- v + 1
-		}
-	}()
-	go func() {
-		defer wg.Done()
-		for i := uint64(0); i < n; i++ {
-			sample := i%every == 0
-			var t0 time.Time
-			if sample {
-				t0 = time.Now()
-			}
-			toB <- token + 1
-			token = <-toA
-			if sample {
-				samples = append(samples, uint64(time.Since(t0).Nanoseconds()))
-			}
-		}
-		close(toB)
-	}()
+	go pong(toB, toA, &wg)
+	go ping(toB, toA, n, every, &token, &samples, &wg)
 	wg.Wait()
 	return okReport(a, n, time.Since(start), token).withLatencies(samples)
+}
+
+// Sends the token n times, waiting for each reply; times every every-th round trip.
+func ping(toB chan<- uint64, toA <-chan uint64, n, every uint64, token *uint64, samples *[]uint64, wg *sync.WaitGroup) {
+	defer wg.Done()
+	var t uint64
+	s := *samples
+	for i := uint64(0); i < n; i++ {
+		sample := i%every == 0
+		var t0 time.Time
+		if sample {
+			t0 = time.Now()
+		}
+		toB <- t + 1
+		t = <-toA
+		if sample {
+			s = append(s, uint64(time.Since(t0).Nanoseconds()))
+		}
+	}
+	close(toB)
+	*token, *samples = t, s
+}
+
+// Replies to every token with token + 1 until ping closes its channel.
+func pong(toB <-chan uint64, toA chan<- uint64, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for v := range toB {
+		toA <- v + 1
+	}
 }
 
 // One untimed pass first, as in every implementation, so the timed pass runs in a warm process
@@ -183,10 +181,7 @@ func spawnOnce(results []uint64) (time.Duration, uint64) {
 	start := time.Now()
 	wg.Add(int(n))
 	for i := uint64(0); i < n; i++ {
-		go func(i uint64) {
-			results[i] = i
-			wg.Done()
-		}(i)
+		go record(results, i, &wg)
 	}
 	wg.Wait()
 	var sum uint64
@@ -194,6 +189,12 @@ func spawnOnce(results []uint64) (time.Duration, uint64) {
 		sum += v
 	}
 	return time.Since(start), sum
+}
+
+// The spawned goroutine: writes its own index into its slot.
+func record(results []uint64, i uint64, wg *sync.WaitGroup) {
+	results[i] = i
+	wg.Done()
 }
 
 func cpu(a Args) *Report {
@@ -204,10 +205,7 @@ func cpu(a Args) *Report {
 	wg.Add(chunks)
 	for c := 0; c < chunks; c++ {
 		lo, hi := chunkBounds(n, chunks, c)
-		go func(c int) {
-			results[c] = cpuRange(lo, hi, rounds)
-			wg.Done()
-		}(c)
+		go hashChunk(&results[c], lo, hi, rounds, &wg)
 	}
 	wg.Wait()
 	var sum uint64
@@ -215,6 +213,11 @@ func cpu(a Args) *Report {
 		sum += v
 	}
 	return okReport(a, n, time.Since(start), sum)
+}
+
+func hashChunk(result *uint64, lo, hi uint64, rounds int, wg *sync.WaitGroup) {
+	*result = cpuRange(lo, hi, rounds)
+	wg.Done()
 }
 
 func selectWorkload(a Args) *Report {
@@ -225,42 +228,34 @@ func selectWorkload(a Args) *Report {
 	var wg sync.WaitGroup
 	start := time.Now()
 	wg.Add(3)
-	go func() {
-		defer wg.Done()
-		for i := uint64(0); i < half; i++ {
-			ch1 <- i
-		}
-		close(ch1)
-	}()
-	go func() {
-		defer wg.Done()
-		for i := half; i < 2*half; i++ {
-			ch2 <- i
-		}
-		close(ch2)
-	}()
-	go func() {
-		defer wg.Done()
-		var r1, r2 <-chan uint64 = ch1, ch2
-		for r1 != nil || r2 != nil {
-			select {
-			case v, ok := <-r1:
-				if !ok {
-					r1 = nil
-				} else {
-					sum += v
-				}
-			case v, ok := <-r2:
-				if !ok {
-					r2 = nil
-				} else {
-					sum += v
-				}
-			}
-		}
-	}()
+	go produce(ch1, 0, half, true, &wg)
+	go produce(ch2, half, 2*half, true, &wg)
+	go selectSum(ch1, ch2, &sum, &wg)
 	wg.Wait()
 	return okReport(a, 2*half, time.Since(start), sum)
+}
+
+// Sums everything from both channels, taking whichever is ready, until both close.
+func selectSum(r1, r2 <-chan uint64, sum *uint64, wg *sync.WaitGroup) {
+	defer wg.Done()
+	var s uint64
+	for r1 != nil || r2 != nil {
+		select {
+		case v, ok := <-r1:
+			if !ok {
+				r1 = nil
+			} else {
+				s += v
+			}
+		case v, ok := <-r2:
+			if !ok {
+				r2 = nil
+			} else {
+				s += v
+			}
+		}
+	}
+	*sum = s
 }
 
 func mutex(a Args) *Report {
@@ -271,14 +266,7 @@ func mutex(a Args) *Report {
 	start := time.Now()
 	wg.Add(a.Workers)
 	for w := 0; w < a.Workers; w++ {
-		go func() {
-			defer wg.Done()
-			for i := uint64(0); i < per; i++ {
-				mu.Lock()
-				counter++
-				mu.Unlock()
-			}
-		}()
+		go increment(&mu, &counter, per, &wg)
 	}
 	wg.Wait()
 	elapsed := time.Since(start)
@@ -286,6 +274,16 @@ func mutex(a Args) *Report {
 	total := counter
 	mu.Unlock()
 	return okReport(a, per*uint64(a.Workers), elapsed, total)
+}
+
+// Adds 1 to the shared counter times times, taking the lock each time.
+func increment(mu *sync.Mutex, counter *uint64, times uint64, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for i := uint64(0); i < times; i++ {
+		mu.Lock()
+		*counter++
+		mu.Unlock()
+	}
 }
 
 // Memory per parked goroutine. Goroutines wait on a channel that is closed
@@ -299,12 +297,7 @@ func idle(a Args) *Report {
 	start := time.Now()
 	wg.Add(int(n))
 	for i := uint64(0); i < n; i++ {
-		go func() {
-			parked.Add(1)
-			<-gate
-			finished.Add(1)
-			wg.Done()
-		}()
+		go park(gate, &parked, &finished, &wg)
 	}
 	for parked.Load() < n {
 		time.Sleep(time.Millisecond)
@@ -315,4 +308,12 @@ func idle(a Args) *Report {
 	close(gate)
 	wg.Wait()
 	return okReport(a, n, elapsed, finished.Load()).withMemory(before, after, n)
+}
+
+// An idle goroutine: counts itself as parked, waits for the gate to close, then counts itself as finished.
+func park(gate <-chan struct{}, parked, finished *atomic.Uint64, wg *sync.WaitGroup) {
+	parked.Add(1)
+	<-gate
+	finished.Add(1)
+	wg.Done()
 }
