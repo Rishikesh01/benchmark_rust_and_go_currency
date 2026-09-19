@@ -172,11 +172,17 @@ echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governo
 python3 runner/run.py --profile full --impls tokio,crossbeam,go,tokio-tuned   # about 20 minutes
 python3 runner/run.py                                                         # smoke test, about 1 minute
 python3 runner/report.py results/<run>                                        # rebuild the reports
+python3 runner/flamegraph.py                                                  # flame graphs, about 2 minutes
 ```
 
 Flags: `--workloads`, `--threads`, `--reps`, `--warmup`, `--seed`, `--no-build`, `--out`.
 
 Each run writes `results/<profile>-<timestamp>/`: `raw.jsonl`, `summary.csv`, `summary.md`, `report.html`.
+
+`flamegraph.py` writes `results/flame-<timestamp>/`: one SVG per test and an `index.md`. It needs perf,
+`cargo install inferno rustfilt` and `sudo sysctl kernel.perf_event_paranoid=1 kernel.kptr_restrict=0`. Rust is
+rebuilt with frame pointers because DWARF unwinding lost about half the stacks. In spot checks that build ran
+within 10% of the benchmark build, except Crossbeam 1 → 1 (30% slower) and 4 → 4 (15% faster).
 
 ```
 rust/common/                shared CLI, JSON output, checksums
@@ -185,5 +191,5 @@ rust/tokio-tuned-bench/     tuned Tokio
 rust/tokio-variants-bench/  single-tweak Tokio builds
 rust/crossbeam-bench/       Crossbeam
 go/                         Go
-runner/                     run.py, report.py
+runner/                     run.py, report.py, flamegraph.py
 ```

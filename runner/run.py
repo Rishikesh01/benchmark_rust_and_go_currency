@@ -389,15 +389,22 @@ def base_record(impl, workload, size, threads, cpus) -> dict:
     }
 
 
-def run_one(impl, workload, size, threads, cpus, timeout, env_pad) -> dict:
-    binary, variants = resolve_impl(impl, workload)
-    cmd = [str(binary), "--workload", program_workload(workload), "--threads", str(threads), "--size", str(size)]
+def bench_command(impl, workload, size, threads, cpus, binary: Path | None = None) -> list[str]:
+    """Command line for one run of a test case, pinned to `cpus`. `binary` replaces the impl's usual build."""
+    resolved, variants = resolve_impl(impl, workload)
+    cmd = [str(binary or resolved), "--workload", program_workload(workload), "--threads", str(threads), "--size", str(size)]
     for key, value in WORKLOAD_PARAMS[workload].items():
         cmd += [f"--{key}", str(value)]
     if variants:
         cmd += ["--variant", ",".join(variants)]
     if shutil.which("taskset"):
         cmd = ["taskset", "-c", ",".join(map(str, cpus))] + cmd
+    return cmd
+
+
+def run_one(impl, workload, size, threads, cpus, timeout, env_pad) -> dict:
+    binary, variants = resolve_impl(impl, workload)
+    cmd = bench_command(impl, workload, size, threads, cpus)
     env = {k: v for k, v in os.environ.items() if k != "GOMAXPROCS"}
     env["BENCH_ENV_PAD"] = "x" * env_pad
 
